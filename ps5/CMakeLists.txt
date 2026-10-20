@@ -282,8 +282,22 @@ string(JSON PS5_TITLE_NAME GET "${param_json}" localizedParameters en-US titleNa
 target_compile_definitions(ps5_platform PRIVATE "PS5_TITLE_NAME=\"${PS5_TITLE_NAME}\"")
 set_target_properties(ps5_platform PROPERTIES ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
+# The launcher's environment defaults (installer/runtime-env.json), for main.cpp
+set(launcher_env_json_file ${nebula}/installer/runtime-env.json)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${launcher_env_json_file})
+file(READ ${launcher_env_json_file} launcher_env_json)
+string(JSON launcher_env_count LENGTH "${launcher_env_json}")
+math(EXPR launcher_env_last "${launcher_env_count} - 1")
+set(launcher_env_body "")
+foreach(index RANGE ${launcher_env_last})
+    string(JSON launcher_env_name GET "${launcher_env_json}" ${index} name)
+    string(JSON launcher_env_value GET "${launcher_env_json}" ${index} value)
+    string(APPEND launcher_env_body "    {\"${launcher_env_name}\", \"${launcher_env_value}\"},\n")
+endforeach()
+file(CONFIGURE OUTPUT ${CMAKE_BINARY_DIR}/generated/launcher_env.inc CONTENT "${launcher_env_body}" @ONLY)
+
 add_executable(SuperMarioGalaxy ${ps5}/src/main.cpp ${ps5}/src/modules.cpp)
-target_include_directories(SuperMarioGalaxy PRIVATE ${windows_includes})
+target_include_directories(SuperMarioGalaxy PRIVATE ${windows_includes} ${CMAKE_BINARY_DIR}/generated)
 target_compile_options(SuperMarioGalaxy PRIVATE ${windows_flags} -g1)
 target_link_libraries(SuperMarioGalaxy PRIVATE nebula_runtime compat game_module home_module softfloat vkd3d)
 # The platform archive is linked whole (its start-up constructor has no caller),

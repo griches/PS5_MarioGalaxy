@@ -212,6 +212,27 @@ int main(int, char**) {
     set_default("GALAXY_SKIP_LAUNCHER", "1");
     set_default("GALAXY_NAND_ROOT", "/app0/userdata/saves");
     set_default("GALAXY_UNBUFFERED_STDOUT", "1");
+    // The environment Nebula's launcher starts the runtime with (installer/src/Launcher/
+    // LaunchOptions.cs, not recording, then installer/runtime-env.json): its tuned
+    // defaults, among them the threaded renderer, pipeline prewarming and the native
+    // THP movie decoder (the game's own decoder drops movies to ~49 frames/s here),
+    // with the diagnostics off. env.txt still overrides any of them.
+    for (const char* name : {"GALAXY_TRACE_PRESENT_STATS", "GALAXY_MONITOR_POINTER_LATENCY",
+                             "GALAXY_MONITOR_FRAME_TAILS", "GALAXY_MONITOR_DISPLAY_LAYOUT", "GALAXY_FRAME_TELEMETRY",
+                             "GALAXY_TRACE_IOS_ANOMALIES", "GALAXY_DIAGNOSTIC_IOS_COUNTERS",
+                             "GALAXY_TRACE_NATIVE_THP_BOUNDARY", "GALAXY_TRACE_GX_STALLS", "GALAXY_SIM_PROFILE",
+                             "GALAXY_FRAME_TIMELINE", "GALAXY_GPU_TIMESTAMPS", "GALAXY_TRACE_GX_MICROPROFILE",
+                             "GALAXY_GX_FRAME_TIMING_SAMPLE", "GALAXY_GX_PSO_CYCLES"}) {
+        set_default(name, "0");
+    }
+    set_default("GALAXY_FRAME_TIMELINE_EVENTS", "4000000");
+    set_default("GALAXY_TRACE_GX_STALL_US", "20000");
+    set_default("GALAXY_NATIVE_THP_VIDEO_DECODE", "1");
+    set_default("GALAXY_DUSK_DSP_HLE", "0");
+    static const char* const kLauncherEnvironment[][2] = {
+#include "launcher_env.inc"
+    };
+    for (const auto& [name, value] : kLauncherEnvironment) set_default(name, value);
 
     Launch launch;
     launch.arguments = {L"/app0/eboot.bin", L"/app0/content", L"/app0/RMGE01_game.dll"};
