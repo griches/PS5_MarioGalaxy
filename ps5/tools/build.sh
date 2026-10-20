@@ -19,8 +19,7 @@ vulkan=$(cd -- "${PS5_VULKAN_DIR:-$root/../PS5_Vulkan}" && pwd)
 sdk=$(bash "$ps5/tools/setup-sdk.sh")
 generated="$root/gamedata/generated"
 [[ -f $generated/game/module.cpp ]] || { echo "no generated game code in $generated (run ps5/tools/prepare-game.sh)" >&2; exit 2; }
-# The title's own RADV (120 Hz on a VRR TV); link-title.sh links RADV_ARCHIVE.
-export RADV_ARCHIVE=${RADV_ARCHIVE:-$(PS5_VULKAN_DIR="$vulkan" bash "$ps5/tools/setup-radv.sh")}
+export RADV_ARCHIVE=${RADV_ARCHIVE:-$vulkan/.deps/native/radv-release/lib/libvulkan_radeon.ps5.a}
 build=${PS5_BUILD_DIR:-$root/build/game}
 ninja=$(command -v ninja || echo "$HOME/.local/bin/ninja")
 export PS5_CLANG=${PS5_CLANG:-$(command -v clang || true)}

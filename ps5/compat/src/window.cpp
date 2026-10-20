@@ -7,7 +7,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "compat_internal.h"
 
-#include <atomic>
 #include <cstdio>
 #include <cwchar>
 
@@ -15,10 +14,7 @@ namespace {
 constexpr LONG kScreenWidth = 3840;
 constexpr LONG kScreenHeight = 2160;
 HMONITOR const kMonitor = reinterpret_cast<HMONITOR>(0x1000);
-std::atomic<unsigned> g_refresh_hz{60};
 }  // namespace
-
-void compat::set_display_refresh_hz(unsigned hz) noexcept { g_refresh_hz.store(hz, std::memory_order_relaxed); }
 
 int GetSystemMetrics(int index) noexcept {
     switch (index) {
@@ -130,7 +126,7 @@ BOOL EnumDisplaySettingsW(LPCWSTR, DWORD mode, DEVMODEW* devmode) noexcept {
     devmode->dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY;
     devmode->dmPelsWidth = kScreenWidth;
     devmode->dmPelsHeight = kScreenHeight;
-    devmode->dmDisplayFrequency = g_refresh_hz.load(std::memory_order_relaxed);
+    devmode->dmDisplayFrequency = 60;
     devmode->dmBitsPerPel = 32;
     return TRUE;
 }
@@ -145,7 +141,7 @@ UINT GetDpiForWindow(HWND) noexcept { return USER_DEFAULT_SCREEN_DPI; }
 int GetSystemMetricsForDpi(int index, UINT) noexcept { return GetSystemMetrics(index); }
 HDC GetDC(HWND) noexcept { return nullptr; }
 int ReleaseDC(HWND, HDC) noexcept { return 0; }
-int GetDeviceCaps(HDC, int index) noexcept { return index == VREFRESH ? static_cast<int>(g_refresh_hz.load(std::memory_order_relaxed)) : index == LOGPIXELSX || index == LOGPIXELSY ? USER_DEFAULT_SCREEN_DPI : 0; }
+int GetDeviceCaps(HDC, int index) noexcept { return index == VREFRESH ? 60 : index == LOGPIXELSX || index == LOGPIXELSY ? USER_DEFAULT_SCREEN_DPI : 0; }
 HGDIOBJ GetStockObject(int) noexcept { return nullptr; }
 BOOL DeleteObject(HGDIOBJ) noexcept { return FALSE; }
 HBRUSH CreateSolidBrush(COLORREF) noexcept { return nullptr; }

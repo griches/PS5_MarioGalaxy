@@ -151,31 +151,20 @@ pipeline/texture caches, post-processing) for Vulkan, the console runs it as wri
 - **Launcher environment**: the console skips Nebula's launcher, so main.cpp applies what
   LaunchOptions.cs sets (not recording) and installer/runtime-env.json (generated
   launcher_env.inc). Without it movies ran at ~49 frames/s (the game's own THP decoder).
-- **120 Hz (works; in-game FRAME RATE setting, default 60)**: the swap chain always takes the
-  119.88 Hz VRR mode when offered and main.cpp sets GALAXY_EXPERIMENTAL_INTERPOLATION=1, so the
-  menu switches 60/120 live. Gary saw animated models (Lumas, butterflies) break in the
-  in-between frames: 60 is the default. Settings live in /app0/userdata/Nebula/config.ini.
-  Details: the title links its own RADV
-  (ps5/tools/setup-radv.sh + ps5/patches/radv.patch, copied from the Eternal Darkness port:
-  keeps 119.88 Hz when the TV runs it as VRR, idle vblank 20.9 ms = the TV's 48 Hz floor;
-  PS5_Vulkan's archive gives that up). dxgi_ps5.cpp picks the fastest mode when max_fps is 0 (follow the display: Nebula clamps
-  the setting to 1-60, 0 allowed)
-  and reports 119 Hz to Nebula (compat::set_display_refresh_hz -> EnumDisplaySettings).
-  Interpolated frames are Nebula's experimental replay: env.txt from ps5/test/120hz.env
-  (`bash ps5/tools/console.sh env $(cat ps5/test/120hz.env)`). On a 60 Hz output nothing
-  changes. Upstream clamps max_fps to 1-60, so interpolation could never start: render_config.cpp
-  allows up to 240 only with GALAXY_EXPERIMENTAL_INTERPOLATION=1. Measured in the Comet
-  Observatory: ~118 presents/s, 1 subframe a game frame (cpu ~1.7 ms, gpu ~3.5 ms each), game
-  frames mostly 60 but some 2 s windows at 52-58. GALAXY_TRACE_GX_STALLS=1 profiles every GX
-  command and drops the game to ~5 frames/s: never in a test env.
+- **120 Hz: tried and removed (2026-10-20, Gary: "it's no good")**. What it took, if it comes
+  back (commits a1760f3..9da3726, reverted after 9da3726): the title's own RADV with the
+  Eternal Darkness WSI patch (the stock archive drops the 119.88 Hz VRR mode to 59.94 Hz), the
+  swap chain on the fastest mode reporting 119 Hz to Nebula, GALAXY_EXPERIMENTAL_INTERPOLATION=1,
+  Nebula's max_fps clamp raised from 60 and 120 added to the FRAME RATE menu. Result: ~118
+  presents/s, one in-between frame a game frame (cpu ~1.7 ms, gpu ~3.5 ms), but animated models
+  (Lumas, butterflies) break in the in-between frames and game frames dip to 54-58/s. Now: stock
+  RADV, 3840x2160 59.94 Hz, menu 30/60. GALAXY_TRACE_GX_STALLS=1 profiles every GX command and
+  drops the game to ~5 frames/s: never in a test env.
 - **Pipeline hitches**: vkd3d compiles a PSO's Vulkan pipeline lazily at its first draw, on
   the render thread (key: topology, slot strides, DSV VkFormat), so Nebula's prewarm only made
   shader modules. vkd3d.patch adds vkd3d_ps5_precompile_graphics_pipeline; pipeline_cache.cpp
   calls it after each GX PSO (topology from its type, stride sizeof(GxVertexOut), EFB depth).
   The 263 ms in-game spike went; worst frame on the test route 27 ms.
-- **120 Hz frame loss**: a present for the other XFB (the game double-buffers) cancelled the
-  playing interpolation sequence, real frame included (up to 25% of game frames). On PS5 that
-  present waits (gx_backend.cpp, `superseded(...)` counters in [interp-stats]).
 - Settings overlay: hold the touchpad, press Options (Nebula's View+Menu chord); the corner
   hint says so on PS5.
 - Small Nebula edits (in nebula.patch): uint64 lambda return types, RECT LONG casts,

@@ -8,15 +8,12 @@
 // current buffer onto the display's next image (scaled when the sizes differ)
 // on vkd3d's own queue, after the frame's Direct3D 12 work, and queues it.
 // The display's FIFO paces presentation; frame-latency objects are always
-// signalled. The mode is 119.88 Hz where the TV runs it as VRR, else 59.94 Hz;
-// Nebula reads the refresh from the display
-// settings (compat::set_display_refresh_hz).
+// signalled.
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include "d3d12_ps5.h"
 
 #include <dxgi1_6.h>
-#include <ps5_compat.h>
 
 #include <algorithm>
 #include <array>
@@ -36,8 +33,6 @@ void say(const char* format, auto... arguments) {
 
 constexpr UINT kOutputWidth = 3840;
 constexpr UINT kOutputHeight = 2160;
-// The display mode's refresh, once a swap chain has picked it (59.94 Hz until then).
-std::atomic<std::uint32_t> g_refresh_millihertz{59940};
 
 // ---- COM plumbing -----------------------------------------------------------------------
 
@@ -163,7 +158,7 @@ public:
     HRESULT STDMETHODCALLTYPE FindClosestMatchingMode(const DXGI_MODE_DESC* mode, DXGI_MODE_DESC* closest,
                                                       IUnknown*) override {
         if (closest == nullptr) return E_INVALIDARG;
-        *closest = {kOutputWidth, kOutputHeight, {g_refresh_millihertz.load(std::memory_order_relaxed), 1000},
+        *closest = {kOutputWidth, kOutputHeight, {60, 1},
                     mode != nullptr && mode->Format != DXGI_FORMAT_UNKNOWN ? mode->Format : DXGI_FORMAT_R8G8B8A8_UNORM,
                     DXGI_MODE_SCANLINE_ORDER_PROGRESSIVE, DXGI_MODE_SCALING_UNSPECIFIED};
         return S_OK;
@@ -389,18 +384,15 @@ private:
             say("the display has no mode");
             return false;
         }
-        // The largest mode at its fastest refresh: 119.88 Hz where the display
-        // offers it (the WSI keeps it only on a TV that runs it as VRR, which then
-        // shows 60 frames/s as 60 Hz). The FRAME RATE setting can then go above 60
-        // (Nebula's frames in between) without a restart.
+        // The largest mode, nearest 60 Hz.
         const VkDisplayModePropertiesKHR* best = &modes[0];
         auto score = [](const VkDisplayModePropertiesKHR& mode) {
             const auto& p = mode.parameters;
             const long long area = static_cast<long long>(p.visibleRegion.width) * p.visibleRegion.height;
-            return area * 1000000 + static_cast<long long>(p.refreshRate);
+            return area * 1000 - std::abs(static_cast<long long>(p.refreshRate) - 60000);
         };
         for (const auto& mode : modes) {
-            say("display offers %ux%u at %u mHz", mode.parameters.visibleRegion.width,
+            say("display mode %ux%u at %u mHz", mode.parameters.visibleRegion.width,
                 mode.parameters.visibleRegion.height, mode.parameters.refreshRate);
             if (score(mode) > score(*best)) best = &mode;
         }
@@ -417,11 +409,6 @@ private:
             if (std::find(supported.begin(), supported.end(), display) != supported.end()) plane_index = plane;
         }
         if (plane_index == UINT32_MAX) plane_index = 0;
-        g_refresh_millihertz.store(best->parameters.refreshRate, std::memory_order_relaxed);
-        // Windows reports whole hertz rounded down at high rates (119 for 119.88).
-        compat::set_display_refresh_hz(best->parameters.refreshRate >= 100000 ? best->parameters.refreshRate / 1000 : 60);
-        say("display mode %ux%u at %u mHz", best->parameters.visibleRegion.width,
-            best->parameters.visibleRegion.height, best->parameters.refreshRate);
         VkDisplayPlaneCapabilitiesKHR capabilities{};
         vk_.vkGetDisplayPlaneCapabilitiesKHR(vk_physical_, best->displayMode, plane_index, &capabilities);
         VkDisplayPlaneAlphaFlagBitsKHR alpha = VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR;
