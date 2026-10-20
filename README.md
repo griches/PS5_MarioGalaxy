@@ -7,7 +7,7 @@
 **Super Mario Galaxy** (Wii, 2007) as native PS5 homebrew, title `PPSA99315`, at
 4K and 60 frames a second. Not an emulator: the game's own code, translated
 into C++ by [Nebula](https://github.com/keepvaibin/nebula) and compiled for the
-console. Version 0.8.0.
+console. Version 1.0.0.
 
 You make the title yourself, from **your own disc**, with a small builder app
 for the Mac or Windows. Nothing of the game is in any download here.
@@ -35,21 +35,35 @@ for the Mac or Windows. Nothing of the game is in any download here.
 
 ### 1. Build the title
 
+<p align="center"><img src="docs/builder-mac.png" width="600" alt="The builder app on a Mac, with a disc image dropped in"></p>
+
 1. From the [latest release](https://github.com/griches/PS5_MarioGalaxy/releases/latest),
    download the builder for your computer and unzip it:
-   - Mac: `SuperMarioGalaxy-PS5-Builder-0.8.0-mac.zip` → **Super Mario Galaxy PS5 Builder**
-   - Windows: `SuperMarioGalaxy-PS5-Builder-0.8.0-windows.zip` → a folder with
-     **Super Mario Galaxy PS5 Builder.exe** (keep the folder together: the app
-     needs the `kit` folder and `galaxy-builder.exe` beside it).
-2. Open the app. On Windows, SmartScreen may say it doesn't know the app: choose
-   **More info**, then **Run anyway**.
-3. Drop your disc image onto the window (or click **Choose…**). The title is
-   saved on your Desktop unless you change it.
-4. Click **Build**. It checks the disc, extracts it, translates the game's code,
-   makes the game's data and compiles it all for the PS5: about **4 minutes** on
-   an Apple silicon Mac, about 8 minutes on a fast PC.
+   - **Mac**: `SuperMarioGalaxy-PS5-Builder-1.0.0-mac.zip` gives you the app
+     **Super Mario Galaxy PS5 Builder**. Move it to Applications if you like and
+     open it.
+   - **Windows**: `SuperMarioGalaxy-PS5-Builder-1.0.0-windows.zip` gives you a
+     folder **Super Mario Galaxy PS5 Builder**. Open
+     **Super Mario Galaxy PS5 Builder.exe** in it. Keep the folder together: the
+     app needs the `kit` folder and `galaxy-builder.exe` beside it. If SmartScreen
+     says it doesn't know the app, choose **More info**, then **Run anyway**.
+2. **Drop your disc image onto the window**, or click **Choose…** and pick it.
+3. The title is saved on your **Desktop**. **Change…** picks another folder
+   (on a drive with about 12 GB free).
+4. Click **Build**. The window shows each step as it goes: checking your disc
+   (the wrong region or revision stops it here, with the reason), extracting it,
+   translating the game's code, making the game's data, compiling it all for the
+   PS5, linking, and putting the title together. It takes about **4 minutes**
+   on an Apple silicon Mac and about **10 minutes** on a fast PC (longer on
+   fewer cores). You can use the computer meanwhile; **Cancel** stops it.
+   **Show details** has every tool's output, if something goes wrong.
+5. When it says **Your title is ready**, **Show in Finder** (Mac) or **Open
+   folder** (Windows) shows you the result: a folder called **`PPSA99315`**
+   (about 4.5 GB).
 
-You get a folder called **`PPSA99315`** (about 4.5 GB).
+The builder downloads nothing and changes nothing else on your computer. Its
+temporary files (about 8 GB, in a `PPSA99315-build` folder beside the title) are
+removed when it finishes or stops; after a **Cancel**, the next build clears them.
 
 > The title you build contains code translated from your disc. It is for your own
 > console: please don't share it.
@@ -171,7 +185,7 @@ change page, and <img src="docs/glyphs/east.png" width="20" alt="Circle"> closes
 **Controls** rebinds any of the Wii's buttons and sets the pointer's speed and
 deadzones and the vibration.
 
-## Known limits (0.8.0)
+## Known limits (1.0.0)
 
 - Only the first USA printing of the disc (`RMGE01`, revision 0).
 - No motion controls: the pointer is on the right stick, and spins are buttons.
@@ -233,8 +247,8 @@ ps5/builder/build-tools-mac.sh                      # nebula-recomp, ps5-native-
 ps5/builder/build-tools-windows.sh USER@PC          # the same for Windows, built on a PC over SSH
 ps5/builder/make-kit.sh mac build/builder-kit-mac   # the kits (a VM build records the link)
 ps5/builder/make-kit.sh windows build/builder-kit-windows
-ps5/builder/mac/build-app.sh 0.8.0                  # the signed Mac app and its zip
-ps5/builder/package-windows.sh 0.8.0                # the Windows zip
+NOTARY_KEY_JSON=~/key.json ps5/builder/mac/build-app.sh 1.0.0   # the signed, notarised Mac app
+ps5/builder/package-windows.sh 1.0.0                # the Windows zip
 ```
 
 The home-screen art (`ps5/art`, converted by `ps5/art/make-title-art.sh`) is

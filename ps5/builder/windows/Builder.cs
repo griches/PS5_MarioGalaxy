@@ -54,24 +54,28 @@ sealed class BuilderForm : Form {
     Process process;
     DateTime started;
     bool failed;
+    float scale = 1f;
+
+    int S(int pixels) { return (int)Math.Round(pixels * scale); }
 
     public BuilderForm() {
         Text = "Super Mario Galaxy PS5 Builder";
         Font = new Font("Segoe UI", 9.75f);
-        AutoScaleDimensions = new SizeF(96f, 96f);  // laid out at 96 DPI, scaled to the screen's
-        AutoScaleMode = AutoScaleMode.Dpi;
-        ClientSize = new Size(640, 560);
-        MinimumSize = new Size(560, 480);
+        // Laid out at 96 DPI; S() scales each position to the screen's (fonts, in points, scale themselves).
+        AutoScaleMode = AutoScaleMode.None;
+        using (var g = CreateGraphics()) scale = g.DpiX / 96f;
+        ClientSize = new Size(S(640), S(560));
+        MinimumSize = new Size(S(560), S(480));
         try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
         var heading = new Label { Text = "Super Mario Galaxy for PS5", Font = new Font("Segoe UI Semibold", 15f),
-                                  AutoSize = true, Location = new Point(24, 18) };
+                                  AutoSize = true, Location = new Point(S(24), S(18)) };
         var blurb = new Label { Text = "Makes the PlayStation 5 title from your own disc. Nothing of the game comes with this app.",
-                                AutoSize = false, Size = new Size(590, 36), Location = new Point(24, 54),
+                                AutoSize = false, Size = new Size(S(590), S(36)), Location = new Point(S(24), S(54)),
                                 ForeColor = SystemColors.GrayText };
 
-        dropPanel.Location = new Point(24, 96);
-        dropPanel.Size = new Size(592, 150);
+        dropPanel.Location = new Point(S(24), S(96));
+        dropPanel.Size = new Size(S(592), S(150));
         dropPanel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         dropPanel.BorderStyle = BorderStyle.FixedSingle;
         dropPanel.AllowDrop = true;
@@ -86,12 +90,12 @@ sealed class BuilderForm : Form {
         dropLabel.Font = new Font("Segoe UI Semibold", 11f);
         dropLabel.TextAlign = ContentAlignment.MiddleCenter;
         dropLabel.Dock = DockStyle.Top;
-        dropLabel.Height = 60;
+        dropLabel.Height = S(60);
         dropHint.Text = "USA disc (RMGE01), revision 0: .iso, .wbfs, .rvz, .wia, .ciso or .gcz";
         dropHint.ForeColor = SystemColors.GrayText;
         dropHint.TextAlign = ContentAlignment.TopCenter;
         dropHint.Dock = DockStyle.Top;
-        dropHint.Height = 30;
+        dropHint.Height = S(30);
         chooseDisc.Text = "Choose...";
         chooseDisc.AutoSize = true;
         chooseDisc.Click += (s, e) => {
@@ -100,9 +104,9 @@ sealed class BuilderForm : Form {
                 if (dialog.ShowDialog(this) == DialogResult.OK) SetDisc(dialog.FileName);
             }
         };
-        var chooseHolder = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 40, FlowDirection = FlowDirection.TopDown,
+        var chooseHolder = new FlowLayoutPanel { Dock = DockStyle.Top, Height = S(40), FlowDirection = FlowDirection.TopDown,
                                                  WrapContents = false };
-        chooseHolder.Padding = new Padding(250, 0, 0, 0);
+        chooseHolder.Padding = new Padding(S(250), 0, 0, 0);
         chooseHolder.Controls.Add(chooseDisc);
         dropPanel.Controls.Add(chooseHolder);
         dropPanel.Controls.Add(dropHint);
@@ -113,13 +117,13 @@ sealed class BuilderForm : Form {
             c.DragDrop += (s, e) => { var f = e.Data.GetData(DataFormats.FileDrop) as string[]; if (f != null && f.Length > 0) SetDisc(f[0]); };
         }
 
-        outputLabel.Location = new Point(24, 262);
-        outputLabel.Size = new Size(480, 24);
+        outputLabel.Location = new Point(S(24), S(262));
+        outputLabel.Size = new Size(S(480), S(24));
         outputLabel.AutoEllipsis = true;
         outputLabel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         chooseOutput.Text = "Change...";
         chooseOutput.AutoSize = true;
-        chooseOutput.Location = new Point(530, 258);
+        chooseOutput.Location = new Point(S(530), S(258));
         chooseOutput.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         chooseOutput.Click += (s, e) => {
             using (var dialog = new FolderBrowserDialog { Description = "Choose where to save the PS5 title", SelectedPath = output }) {
@@ -127,35 +131,35 @@ sealed class BuilderForm : Form {
             }
         };
 
-        stepLabel.Location = new Point(24, 304);
-        stepLabel.Size = new Size(500, 44);
+        stepLabel.Location = new Point(S(24), S(304));
+        stepLabel.Size = new Size(S(500), S(44));
         stepLabel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         stepLabel.Text = "Building takes about 5-15 minutes and needs about 12 GB free.";
-        timeLabel.Location = new Point(530, 304);
-        timeLabel.Size = new Size(86, 24);
+        timeLabel.Location = new Point(S(530), S(304));
+        timeLabel.Size = new Size(S(86), S(24));
         timeLabel.TextAlign = ContentAlignment.TopRight;
         timeLabel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        progress.Location = new Point(24, 350);
-        progress.Size = new Size(592, 18);
+        progress.Location = new Point(S(24), S(350));
+        progress.Size = new Size(S(592), S(18));
         progress.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         progress.Maximum = 1000;
         progress.Visible = false;
 
         buildButton.Text = "Build";
-        buildButton.Size = new Size(110, 32);
-        buildButton.Location = new Point(506, 380);
+        buildButton.Size = new Size(S(110), S(32));
+        buildButton.Location = new Point(S(506), S(380));
         buildButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         buildButton.Enabled = false;
         buildButton.Click += (s, e) => Start();
         cancelButton.Text = "Cancel";
-        cancelButton.Size = new Size(110, 32);
-        cancelButton.Location = new Point(506, 380);
+        cancelButton.Size = new Size(S(110), S(32));
+        cancelButton.Location = new Point(S(506), S(380));
         cancelButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         cancelButton.Visible = false;
         cancelButton.Click += (s, e) => Cancel();
         openButton.Text = "Open folder";
-        openButton.Size = new Size(110, 32);
-        openButton.Location = new Point(386, 380);
+        openButton.Size = new Size(S(110), S(32));
+        openButton.Location = new Point(S(386), S(380));
         openButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         openButton.Visible = false;
         openButton.Click += (s, e) => {
@@ -165,13 +169,13 @@ sealed class BuilderForm : Form {
 
         detailsLink.Text = "Show details";
         detailsLink.AutoSize = true;
-        detailsLink.Location = new Point(24, 388);
+        detailsLink.Location = new Point(S(24), S(388));
         detailsLink.LinkClicked += (s, e) => {
             logBox.Visible = !logBox.Visible;
             detailsLink.Text = logBox.Visible ? "Hide details" : "Show details";
         };
-        logBox.Location = new Point(24, 422);
-        logBox.Size = new Size(592, 120);
+        logBox.Location = new Point(S(24), S(422));
+        logBox.Size = new Size(S(592), S(120));
         logBox.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
         logBox.Multiline = true;
         logBox.ReadOnly = true;

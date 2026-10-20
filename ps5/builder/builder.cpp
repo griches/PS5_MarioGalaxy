@@ -194,6 +194,7 @@ int run(const std::vector<std::string>& argv, const fs::path& cwd, const std::fu
     posix_spawn_file_actions_adddup2(&actions, pipe_ends[1], 1);
     posix_spawn_file_actions_adddup2(&actions, pipe_ends[1], 2);
     posix_spawn_file_actions_addclose(&actions, pipe_ends[0]);
+    // (_np: posix_spawn_file_actions_addchdir is macOS 26 and later only)
     posix_spawn_file_actions_addchdir_np(&actions, u8(cwd).c_str());
     std::vector<char*> args;
     for (const std::string& argument : argv) args.push_back(const_cast<char*>(argument.c_str()));
@@ -370,7 +371,21 @@ struct Options {
     bool keep_work = false;
 };
 
+void build_title(const Options& options, const fs::path& work);
+
+// The work folder (about 8 GB at most) goes whether the build finishes or fails.
 void build(const Options& options) {
+    const fs::path work = options.out / (std::string(kTitleId) + "-build");
+    try {
+        build_title(options, work);
+    } catch (...) {
+        std::error_code error;
+        if (!options.keep_work) fs::remove_all(work, error);
+        throw;
+    }
+}
+
+void build_title(const Options& options, const fs::path& work) {
     const fs::path& kit = options.kit;
     const fs::path bin = kit / "bin";
     const fs::path recomp = bin / (std::string("nebula-recomp") + kExe);
@@ -388,7 +403,6 @@ void build(const Options& options) {
     if (!fs::is_regular_file(options.disc)) fail("The disc image " + u8(options.disc) + " cannot be found.");
 
     const fs::path title = options.out / kTitleId;
-    const fs::path work = options.out / (std::string(kTitleId) + "-build");
     std::error_code error;
     fs::remove_all(work, error);
     fs::remove_all(title, error);
@@ -407,7 +421,11 @@ void build(const Options& options) {
         if (!verdict.empty()) verdict += " ";
         verdict += line;
     });
-    if (identified != 0 || verdict.find("Supported:") == std::string::npos) {
+    if (verdict.rfind("Error: ", 0) == 0) verdict.erase(0, 7);
+    if (identified != 0) {
+        fail("This file isn't a Wii disc image the builder can read (" + verdict + ").");
+    }
+    if (verdict.find("Supported:") == std::string::npos) {
         fail("This disc image cannot be used: " + verdict +
              " The builder needs Super Mario Galaxy for the USA (RMGE01), revision 0.");
     }

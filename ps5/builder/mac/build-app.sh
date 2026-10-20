@@ -69,6 +69,19 @@ done < <(find "$app/Contents/Resources/kit/bin" "$app/Contents/MacOS/galaxy-buil
 codesign --force --timestamp --options runtime -s "$identity" "$app"
 codesign --verify --strict --deep "$app"
 echo "$app (signed: $identity)"
+
+# Notarised when NOTARY_KEY_JSON names an App Store Connect API key's JSON
+# ({keyId, issuerId}, its AuthKey_<keyId>.p8 beside it): Gatekeeper then opens the
+# downloaded app without a warning. The ticket is stapled to the app.
+if [[ -n ${NOTARY_KEY_JSON:-} ]]; then
+    key_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["keyId"])' "$NOTARY_KEY_JSON")
+    issuer=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["issuerId"])' "$NOTARY_KEY_JSON")
+    ditto -c -k --norsrc --noextattr --keepParent "$app" "$stage/notary.zip"
+    xcrun notarytool submit "$stage/notary.zip" --key "$(dirname "$NOTARY_KEY_JSON")/AuthKey_$key_id.p8" \
+        --key-id "$key_id" --issuer "$issuer" --wait --timeout 60m | grep -E "status:|id:" | sort -u
+    xcrun stapler staple "$app"
+    spctl --assess --type execute -vv "$app" 2>&1 | head -2
+fi
 zip="$root/dist/builder/SuperMarioGalaxy-PS5-Builder-$version-mac.zip"
 mkdir -p "$(dirname "$zip")"
 rm -f "$zip"

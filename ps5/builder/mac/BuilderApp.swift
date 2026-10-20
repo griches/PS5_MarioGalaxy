@@ -41,6 +41,8 @@ final class Build: ObservableObject {
 
     private var process: Process?
     private var pending = Data()
+    // No App Nap while building: the player switches to other apps for minutes.
+    private var activity: NSObjectProtocol?
 
     var running: Bool { state == .running }
 
@@ -72,6 +74,8 @@ final class Build: ObservableObject {
         do {
             try process.run()
             self.process = process
+            activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled],
+                                                             reason: "Building the PS5 title")
         } catch {
             state = .failed("The builder did not start: \(error.localizedDescription)")
         }
@@ -125,6 +129,8 @@ final class Build: ObservableObject {
 
     private func finish(status: Int32) {
         process = nil
+        if let activity { ProcessInfo.processInfo.endActivity(activity) }
+        activity = nil
         if state == .running {
             state = status == 0 ? .failed("The builder stopped without finishing.") : .failed("The builder stopped (status \(status)).")
         }
