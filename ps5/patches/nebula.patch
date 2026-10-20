@@ -427,7 +427,7 @@ index aee5bd5..5a6533d 100644
  }  // namespace
  
 diff --git a/runtime/src/native_host.cpp b/runtime/src/native_host.cpp
-index f002418..a901b0b 100644
+index f002418..592d1ca 100644
 --- a/runtime/src/native_host.cpp
 +++ b/runtime/src/native_host.cpp
 @@ -10820,6 +10820,9 @@ private:
@@ -580,8 +580,27 @@ index f002418..a901b0b 100644
  NativeNandRootProbe probe_native_nand_root() {
      std::array<wchar_t, 32768> override_root{};
      const DWORD override_len = GetEnvironmentVariableW(
+@@ -27948,6 +27999,10 @@ bool GuestAddressSpace::handle_fs_ioctl(
+                 return true;
+             }
+ 
++#if !defined(GALAXY_PS5)
++            // The console: POSIX rename() replaces the target atomically, which is what this journal and backup
++            // link give Windows, and the console's /data has no hard links (link() fails), so the replacement
++            // is the plain MoveFileExW below, verified as a rename onto a missing name is.
+             NandRenameTransactionPaths paths =
+                 make_nand_rename_transaction_paths(host_to);
+             NandRenameJournalRecord record{
+@@ -28050,6 +28105,7 @@ bool GuestAddressSpace::handle_fs_ioctl(
+                 throw std::runtime_error(
+                     "native NAND Rename transaction durability verification failed");
+             }
++#endif
+         }
+ 
+         DWORD move_flags = MOVEFILE_WRITE_THROUGH;
 diff --git a/runtime/src/native_runtime.cpp b/runtime/src/native_runtime.cpp
-index 63c12a6..032c0a2 100644
+index 63c12a6..3973dbe 100644
 --- a/runtime/src/native_runtime.cpp
 +++ b/runtime/src/native_runtime.cpp
 @@ -114,6 +114,10 @@ void prefetch_module_image_async(HMODULE module) noexcept {
@@ -638,3 +657,18 @@ index 63c12a6..032c0a2 100644
      return ram;
  }
  
+@@ -31746,7 +31761,13 @@ static LONG WINAPI galaxy_unhandled_exception_filter(
+         // address must not fault again here).
+         unsigned char bytes[8]{};
+         MEMORY_BASIC_INFORMATION region{};
+-        if (VirtualQuery(code, &region, sizeof(region)) == sizeof(region) && region.State == MEM_COMMIT &&
++#if defined(GALAXY_PS5)
++        // The console's code is execute-only: reading it faults again (SYSTEM_XO_VIOLATION).
++        if (false &&
++#else
++        if (
++#endif
++            VirtualQuery(code, &region, sizeof(region)) == sizeof(region) && region.State == MEM_COMMIT &&
+             (region.Protect & (PAGE_NOACCESS | PAGE_GUARD)) == 0u &&
+             reinterpret_cast<const unsigned char*>(region.BaseAddress) + region.RegionSize >= code + sizeof(bytes)) {
+             std::memcpy(bytes, code, sizeof(bytes));

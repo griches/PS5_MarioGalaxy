@@ -7,7 +7,7 @@
 // Windows. Their PRESENT state is the copy-source layout; Present() copies the
 // current buffer onto the display's next image (scaled when the sizes differ)
 // on vkd3d's own queue, after the frame's Direct3D 12 work, and queues it.
-// The display's FIFO paces presentation; the frame-latency object is always
+// The display's FIFO paces presentation; frame-latency objects are always
 // signalled.
 //
 // SPDX-License-Identifier: GPL-3.0-only
@@ -224,7 +224,6 @@ public:
             return E_FAIL;
         }
         fence_event_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-        latency_event_ = CreateEventW(nullptr, TRUE, TRUE, nullptr);
         if (!create_surface() || !create_display_swapchain() || !create_frames() || !create_buffers()) return E_FAIL;
         say("presenting %ux%u buffers (%u) to a %ux%u display, format %d", desc_.Width, desc_.Height,
             desc_.BufferCount, extent_.width, extent_.height, static_cast<int>(display_format_));
@@ -343,7 +342,8 @@ public:
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE SetMaximumFrameLatency(UINT) override { return S_OK; }
-    HANDLE STDMETHODCALLTYPE GetFrameLatencyWaitableObject() override { return latency_event_; }
+    // The caller owns (and closes) the handle, as with DXGI's.
+    HANDLE STDMETHODCALLTYPE GetFrameLatencyWaitableObject() override { return CreateEventW(nullptr, TRUE, TRUE, nullptr); }
     UINT STDMETHODCALLTYPE GetCurrentBackBufferIndex() override { return current_; }
 
 private:
@@ -652,7 +652,6 @@ private:
         }
         if (fence_ != nullptr) fence_->Release();
         if (fence_event_ != nullptr) CloseHandle(fence_event_);
-        if (latency_event_ != nullptr) CloseHandle(latency_event_);
         if (device_ != nullptr) device_->Release();
         if (queue_ != nullptr) queue_->Release();
         fence_ = nullptr;
@@ -666,7 +665,6 @@ private:
     ID3D12Fence* fence_ = nullptr;
     UINT64 fence_value_ = 0;
     HANDLE fence_event_ = nullptr;
-    HANDLE latency_event_ = nullptr;
     VkInstance vk_instance_ = VK_NULL_HANDLE;
     VkPhysicalDevice vk_physical_ = VK_NULL_HANDLE;
     VkDevice vk_device_ = VK_NULL_HANDLE;
