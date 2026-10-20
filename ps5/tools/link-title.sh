@@ -255,7 +255,7 @@ archive_revision=$(sed -n 's/^revision: //p' "$(dirname "$(dirname "$archive")")
 printf '==> %s: %s (eboot.bin %s bytes; RADV %s)\n' "$title_id" "$app" \
     "$(stat -c %s "$app/eboot.bin")" "${archive_revision:0:11}"
 # The licences beside eboot.bin: Nebula's (GPL-3.0) and its third-party notices,
-# vkd3d (LGPL-2.1), Mesa's RADV, PS5_Vulkan, and the xxHash notice.
+# vkd3d (LGPL-2.1), Mesa's RADV, PS5_Vulkan, LLVM and the xxHash notice.
 nebula="$root/vendor/nebula"
 rm -rf "$app/licenses"
 mkdir -p "$app/licenses"
@@ -266,6 +266,8 @@ cp "$vulkan/LICENSE" "$app/licenses/PS5_Vulkan.txt"
 cp "$root/.deps/vkd3d/COPYING" "$app/licenses/vkd3d.txt"
 cp "$root/.deps/vkd3d/LICENSE" "$app/licenses/vkd3d-LGPL-2.1.txt"
 cp "$root/ps5/licenses/xxHash.txt" "$app/licenses/xxHash.txt"
+# LLVM's (compiler-rt's builtins and libc++ are linked in); the builder's kit carries it too
+cp "$root/ps5/licenses/LLVM.txt" "$app/licenses/LLVM.txt"
 mesa=$(dirname "$vulkan")/PS5_Mesa
 if [[ -f $mesa/docs/license.rst ]]; then
     cp "$mesa/docs/license.rst" "$app/licenses/Mesa.txt"
