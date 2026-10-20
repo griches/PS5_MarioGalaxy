@@ -185,6 +185,21 @@ pipeline/texture caches, post-processing) for Vulkan, the console runs it as wri
   apply, Square undo/clear, Circle close). Seen on the console with the virtual pad. Not done:
   the game's own prompts ("Press both (A) and (B)") are its textures.
 - AA defaults to auto on PS5 (render_config.h aa_mode 2; Gary 2026-10-20). A saved config.ini wins.
+- **Release route: builder apps** (Gary 2026-10-20, never a built eboot). `ps5/builder/`: builder.cpp
+  (galaxy-builder: nebula-recomp identify/extract/generate/package-content, compiles game (PCH from
+  functions.h) + home + dsp with the kit's clang via the -### cc1 job minus -fno-use-init-array,
+  llvm-ar, replays the recorded ld.lld link, ps5-native-tool link + self), make-kit.sh (kit: LLVM
+  22.1.8 from .deps/llvm/{mac,win}, SDK headers, compat + Nebula headers, flags taken from the VM's
+  ninja commands, link record, title files), build-tools-mac.sh, build-tools-windows.sh (+ .bat,
+  on GTI14ULTRA at 192.168.0.110 over SSH: cargo, clang-cl, csc.exe), mac/BuilderApp.swift +
+  mac/build-app.sh (signed Developer ID, built in $TMPDIR: ~/Documents is a File Provider and
+  codesign refuses its Finder info), windows/Builder.cs (WinForms, .NET Framework 4.8 csc),
+  package-windows.sh. The DSP module is its own archive now (dsp_module) so nebula_runtime ships
+  prebuilt. link-title.sh records the link when PS5_KIT_DIR is set (vm.sh passes it); the SDK's
+  prospero-lld adds -m elf_x86_64 -pie ... --hash-style=gnu, and it uses LLVM_CONFIG's lld (22 in
+  the build env, 18 without env.sh: weak/strong undefined symbols differ). **The Mac builder's
+  eboot is byte-identical to the VM build's** (a8cb2cfc, 4.0 min on the M-series Mac, 12 jobs).
+  Test hooks: both apps take --disc PATH [--out DIR] [--build].
 - Settings overlay: hold the touchpad, press Options (Nebula's View+Menu chord); the corner
   hint says so on PS5.
 - Small Nebula edits (in nebula.patch): uint64 lambda return types, RECT LONG casts,

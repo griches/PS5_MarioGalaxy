@@ -245,7 +245,6 @@ set(runtime_sources
     gx/game_asset_extract.cpp)
 list(TRANSFORM runtime_sources PREPEND "${runtime}/src/")
 add_library(nebula_runtime STATIC ${runtime_sources}
-    ${generated}/dsp/rmge01_dsp.cpp
     ${uber_embed_cpp} ${post_shader_headers}
     ${ps5}/gx/d3d12_ps5.cpp ${ps5}/gx/dxgi_ps5.cpp ${ps5}/gx/texture_pack.cpp)
 target_include_directories(nebula_runtime PRIVATE ${windows_includes} ${runtime}/softfloat ${ps5}/gx
@@ -264,6 +263,13 @@ target_compile_definitions(game_module PRIVATE GALAXY_BUILDING_GAME_MODULE=1)
 target_compile_options(game_module PRIVATE ${module_flags})
 target_precompile_headers(game_module PRIVATE ${generated}/game/functions.h)
 add_library(home_module STATIC ${generated}/home/home_button_native.cpp)
+# The DSP's microcode, translated from the disc: built as the runtime is, but as its
+# own archive, so that everything else can ship prebuilt (ps5/builder) and the
+# player's computer compiles only what comes from the disc.
+add_library(dsp_module STATIC ${generated}/dsp/rmge01_dsp.cpp)
+target_include_directories(dsp_module PRIVATE ${windows_includes})
+target_compile_options(dsp_module PRIVATE ${windows_flags} -g1 -fwrapv -fno-strict-aliasing)
+target_link_libraries(dsp_module PUBLIC softfloat)
 target_include_directories(home_module PRIVATE ${windows_includes})
 target_compile_definitions(home_module PRIVATE GALAXY_BUILDING_GAME_MODULE=1)
 # The Home Menu's code is one function of 148,000 lines: clang's optimiser
@@ -299,7 +305,7 @@ file(CONFIGURE OUTPUT ${CMAKE_BINARY_DIR}/generated/launcher_env.inc CONTENT "${
 add_executable(SuperMarioGalaxy ${ps5}/src/main.cpp ${ps5}/src/modules.cpp)
 target_include_directories(SuperMarioGalaxy PRIVATE ${windows_includes} ${CMAKE_BINARY_DIR}/generated)
 target_compile_options(SuperMarioGalaxy PRIVATE ${windows_flags} -g1)
-target_link_libraries(SuperMarioGalaxy PRIVATE nebula_runtime compat game_module home_module softfloat vkd3d)
+target_link_libraries(SuperMarioGalaxy PRIVATE nebula_runtime compat game_module home_module dsp_module softfloat vkd3d)
 # The platform archive is linked whole (its start-up constructor has no caller),
 # and the link is PS5_Vulkan's recipe, with RADV (tools/link-title.sh)
 set(CMAKE_CXX_LINK_EXECUTABLE

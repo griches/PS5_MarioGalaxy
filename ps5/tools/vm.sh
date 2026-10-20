@@ -11,11 +11,12 @@
 # mounted there at the same path. The game's build tree goes on the VM's own disk
 # (~/ps5/build/PS5_MarioGalaxy-game): the shared folder is several times slower for
 # three thousand objects. The console's address is PS5_HOST in the VM's
-# ~/ps5/PS5_Vulkan/.env.
+# ~/ps5/PS5_Vulkan/.env. PS5_KIT_DIR (the builder kit's link record, link-title.sh)
+# is passed through.
 #
 # SPDX-License-Identifier: MIT
 set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 tool=${1:?usage: vm.sh build|deploy|run|package-release [arguments]}
 shift
-exec limactl shell ps5 -- bash -lc '. ~/ps5/env.sh; export PS5_VULKAN_DIR=~/ps5/PS5_Vulkan PS5_PAYLOAD_SDK_FORK=~/ps5/PS5_PayloadSDK PS5_BUILD_DIR=${PS5_BUILD_DIR:-$HOME/ps5/build/PS5_MarioGalaxy-game}; cd "$1"; tool=$2; shift 2; exec bash "ps5/tools/$tool.sh" "$@"' _ "$root" "$tool" "$@"
+exec limactl shell ps5 -- env PS5_KIT_DIR="${PS5_KIT_DIR:-}" bash -lc '. ~/ps5/env.sh; export PS5_VULKAN_DIR=~/ps5/PS5_Vulkan PS5_PAYLOAD_SDK_FORK=~/ps5/PS5_PayloadSDK PS5_BUILD_DIR=${PS5_BUILD_DIR:-$HOME/ps5/build/PS5_MarioGalaxy-game}; cd "$1"; tool=$2; shift 2; exec bash "ps5/tools/$tool.sh" "$@"' _ "$root" "$tool" "$@"

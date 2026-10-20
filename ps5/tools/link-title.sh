@@ -143,13 +143,64 @@ fi
 # Nebula names its Windows libraries with #pragma comment(lib, ...): the
 # compatibility layer is those libraries here, so the requests are ignored.
 radv_link_flags+=(--no-dependent-libraries)
-"$sdk/bin/prospero-lld" "${radv_linker_script[@]}" --eh-frame-hdr "${radv_link_flags[@]}" \
-    --version-script "$native/app-symbols.map" --exclude-libs=ALL \
-    -e _start -o "$work/link/llvm-pie.elf" \
-    "$work/link/obj/app_crt.o" --start-group "${objects[@]}" "${experimental[@]}" --end-group \
-    "$work/link/stubs/libSceAgc.so" "$work/link/stubs/libSceAgcDriver.so" \
-    "${radv_link_inputs[@]}" \
-    --as-needed "$sdk"/target/lib/*.so
+lld_arguments=("${radv_linker_script[@]}" --eh-frame-hdr "${radv_link_flags[@]}"
+    --version-script "$native/app-symbols.map" --exclude-libs=ALL
+    -e _start -o "$work/link/llvm-pie.elf"
+    "$work/link/obj/app_crt.o" --start-group "${objects[@]}" "${experimental[@]}" --end-group
+    "$work/link/stubs/libSceAgc.so" "$work/link/stubs/libSceAgcDriver.so"
+    "${radv_link_inputs[@]}"
+    --as-needed "$sdk"/target/lib/*.so)
+"$sdk/bin/prospero-lld" "${lld_arguments[@]}"
+
+# For the builder kit (ps5/builder): with PS5_KIT_DIR set, the link as data. Each
+# file or folder the link reads is copied into $PS5_KIT_DIR/link/files/ and the
+# arguments go one a line into an .args file, {KIT} standing for the kit's folder,
+# {GAME} for the folder of the player's three game archives and {WORK} for where
+# the builder links. The player's link is then this one, with their archives.
+kit_index=0
+kit_record() {
+    local list=$PS5_KIT_DIR/link/$1 argument out prefix path name next=""
+    shift
+    : > "$list"
+    for argument in "$@"; do
+        out=$argument
+        if [[ $next == work ]]; then
+            out="{WORK}/${argument##*/}"
+            next=""
+        elif [[ $next == literal ]]; then
+            next=""
+        else
+            case $argument in
+            -o | --out | --in) next=work ;;
+            --file-name) next=literal ;;
+            libgame_module.a | */libgame_module.a | libhome_module.a | */libhome_module.a | \
+                libdsp_module.a | */libdsp_module.a)
+                out="{GAME}/${argument##*/}" ;;
+            *)
+                prefix="" path=$argument
+                if [[ $argument == --*=* ]]; then
+                    prefix=${argument%%=*}= path=${argument#*=}
+                fi
+                # a path: with a folder in it, or an input's suffix (not a word such
+                # as the native tool's "link" that names a folder here too)
+                if [[ -e $path && ($path == */* || $path =~ \.(a|o|so|ld|map)$) ]]; then
+                    kit_index=$((kit_index + 1))
+                    name="$kit_index-${path##*/}"
+                    cp -R "$path" "$PS5_KIT_DIR/link/files/$name"
+                    out="$prefix{KIT}/link/files/$name"
+                fi ;;
+            esac
+        fi
+        printf '%s\n' "$out" >> "$list"
+    done
+}
+if [[ -n ${PS5_KIT_DIR:-} ]]; then
+    rm -rf "$PS5_KIT_DIR/link"
+    mkdir -p "$PS5_KIT_DIR/link/files"
+    # what the SDK's prospero-lld wrapper adds around them, for the bare ld.lld
+    kit_record lld.args -m elf_x86_64 -pie --eh-frame-hdr -z max-page-size=0x4000 -mllvm -emulated-tls \
+        "${lld_arguments[@]}" --hash-style=gnu
+fi
 # A title whose localeconv is still the console's reads every glTF fraction as 0
 # (black materials, models scaled to nothing): refuse it here, not on the console
 if $platform_has_localeconv &&
@@ -174,10 +225,14 @@ if [[ -n $null_imports ]]; then
     echo "link-title.sh: bind them to the platform layer (PS5_Vulkan's tools/radv-link.sh)" >&2
     exit 1
 fi
-"$tool" link --in "$work/link/llvm-pie.elf" --out "$work/eboot.elf.new" \
-    --stub-dir "$sdk/target/lib" --stub "$work/link/stubs/libSceAgc.so" \
-    --stub "$work/link/stubs/libSceAgcDriver.so" --module-sdk 0x02000009 \
-    --companion-sdk 0x08050001 --file-name eboot.elf
+native_link_arguments=(link --in "$work/link/llvm-pie.elf" --out "$work/eboot.elf.new"
+    --stub-dir "$sdk/target/lib" --stub "$work/link/stubs/libSceAgc.so"
+    --stub "$work/link/stubs/libSceAgcDriver.so" --module-sdk 0x02000009
+    --companion-sdk 0x08050001 --file-name eboot.elf)
+"$tool" "${native_link_arguments[@]}"
+if [[ -n ${PS5_KIT_DIR:-} ]]; then
+    kit_record native-link.args "${native_link_arguments[@]}"
+fi
 
 # The title folder
 title_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["titleId"])' "$param")
