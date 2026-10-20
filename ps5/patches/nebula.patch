@@ -283,6 +283,21 @@ index 2f4238e..2058a14 100644
      // Recycled decoded-texture resources. Creating a committed resource on first use can stall the texture
      // flush, so a GPU-idle retired texture of the same size and mip count is reused instead. RGBA8 2D, no
      // flags, PSR state.
+diff --git a/runtime/include/galaxy/input_bindings.h b/runtime/include/galaxy/input_bindings.h
+index ce2fcc4..366eeab 100644
+--- a/runtime/include/galaxy/input_bindings.h
++++ b/runtime/include/galaxy/input_bindings.h
+@@ -251,6 +251,10 @@ unsigned migrate_legacy_controls(ControlsConfig& config, unsigned version) noexc
+ [[nodiscard]] std::optional<InputSource> parse_input_source(
+     ControlScheme scheme, std::string_view text);
+ // "None" for an empty list.
++// The overlay's text for a target's bindings: format_target_bindings, except
++// that the console names the DualSense's buttons (the ini keeps Xbox names).
++[[nodiscard]] std::string display_target_bindings(
++    ControlScheme scheme, const TargetBindings& bindings);
+ [[nodiscard]] std::string format_target_bindings(
+     ControlScheme scheme, const TargetBindings& bindings);
+ // Comma-separated; unknown names fail the whole line (bindings unchanged).
 diff --git a/runtime/include/galaxy/native_api.h b/runtime/include/galaxy/native_api.h
 index 6a10239..b50cfd0 100644
 --- a/runtime/include/galaxy/native_api.h
@@ -478,10 +493,49 @@ index 01610bd..fb508b9 100644
  }
  
 diff --git a/runtime/src/gx/renderer_d3d12.cpp b/runtime/src/gx/renderer_d3d12.cpp
-index aee5bd5..46dce87 100644
+index aee5bd5..71ce2be 100644
 --- a/runtime/src/gx/renderer_d3d12.cpp
 +++ b/runtime/src/gx/renderer_d3d12.cpp
-@@ -1680,7 +1680,7 @@ unsigned swap_chain_frame_latency() {
+@@ -204,7 +204,12 @@ std::atomic<bool> s_quit_requested{false};
+ constexpr unsigned kControlsTab = 2u;
+ galaxy::input::ControlsConfig s_controls_draft = galaxy::input::default_controls_config();
+ RuntimeInputMode s_input_mode_draft = RuntimeInputMode::Auto;
++#if defined(GALAXY_PS5)
++// The console's one controller: the DualSense, read as XInput.
++galaxy::input::ControlScheme s_controls_scheme = galaxy::input::ControlScheme::Xbox;
++#else
+ galaxy::input::ControlScheme s_controls_scheme = galaxy::input::ControlScheme::Keyboard;
++#endif
+ std::size_t s_capture_target = galaxy::input::kWiiTargetCount;
+ std::uint64_t s_capture_deadline_ms = 0u;
+ constexpr std::uint64_t kCaptureTimeoutMs = 6000u;
+@@ -560,7 +565,12 @@ struct ControlsRowInfo {
+     galaxy::input::WiiTarget target = galaxy::input::WiiTarget::A;
+ };
+ 
++#if defined(GALAXY_PS5)
++// No INPUT or EDIT rows on the console: the DualSense is its only controller.
++constexpr unsigned kControlsBindingRow0 = 0u;
++#else
+ constexpr unsigned kControlsBindingRow0 = 2u;
++#endif
+ 
+ std::vector<ControlsRow> controls_tail_rows() {
+     using galaxy::input::scheme_has_motion;
+@@ -590,10 +600,8 @@ unsigned controls_row_count() {
+ 
+ ControlsRowInfo controls_row(unsigned row) {
+     ControlsRowInfo info{};
+-    if (row == 0u) {
+-        info.kind = ControlsRow::InputMode;
+-    } else if (row == 1u) {
+-        info.kind = ControlsRow::Scheme;
++    if (row < kControlsBindingRow0) {
++        info.kind = row == 0u ? ControlsRow::InputMode : ControlsRow::Scheme;
+     } else if (row - kControlsBindingRow0 < galaxy::input::kWiiTargetCount) {
+         // The jump/back row follows A and B.
+         using galaxy::input::WiiTarget;
+@@ -1680,7 +1688,7 @@ unsigned swap_chain_frame_latency() {
  // discrete adapter this is context only. Queried once; the value cannot change
  // during a session.
  std::uint64_t host_ram_mb() {
@@ -490,7 +544,7 @@ index aee5bd5..46dce87 100644
          MEMORYSTATUSEX status{};
          status.dwLength = sizeof(status);
          if (GlobalMemoryStatusEx(&status) == FALSE) {
-@@ -1761,7 +1761,7 @@ galaxy::host::HostPointerCursorPollMode mouse_ir_cursor_poll_mode() {
+@@ -1761,7 +1769,7 @@ galaxy::host::HostPointerCursorPollMode mouse_ir_cursor_poll_mode() {
  }
  
  std::uint64_t mouse_ir_message_recent_ms() {
@@ -499,7 +553,7 @@ index aee5bd5..46dce87 100644
          char text[16]{};
          std::size_t length = 0;
          if (getenv_s(
-@@ -1777,7 +1777,7 @@ std::uint64_t mouse_ir_message_recent_ms() {
+@@ -1777,7 +1785,7 @@ std::uint64_t mouse_ir_message_recent_ms() {
  }
  
  std::uint64_t mouse_ir_stale_center_reject_ms() {
@@ -508,7 +562,7 @@ index aee5bd5..46dce87 100644
          char text[16]{};
          std::size_t length = 0;
          if (getenv_s(
-@@ -5117,7 +5117,8 @@ RECT windowed_rect_on_monitor(const MonitorInfo& monitor, unsigned width,
+@@ -5117,7 +5125,8 @@ RECT windowed_rect_on_monitor(const MonitorInfo& monitor, unsigned width,
      const long outer_h = client_h + frame_h;
      const long left = monitor.work_area.left + std::max(0L, (work_w - outer_w) / 2);
      const long top = monitor.work_area.top + std::max(0L, (work_h - outer_h) / 2);
@@ -518,7 +572,86 @@ index aee5bd5..46dce87 100644
  }
  }  // namespace
  
-@@ -9714,7 +9715,12 @@ void draw_native_settings_hint(RendererD3D12& renderer) {
+@@ -9432,7 +9441,7 @@ std::string native_settings_row_text(
+             if (controls_capturing() && s_capture_target == static_cast<std::size_t>(info.target)) {
+                 return line + "PRESS AN INPUT";
+             }
+-            std::string bound = upper_ascii(galaxy::input::format_target_bindings(
++            std::string bound = upper_ascii(galaxy::input::display_target_bindings(
+                 s_controls_scheme, s_controls_draft.table(s_controls_scheme)[info.target]));
+             if (bound.size() > 34u) bound = bound.substr(0, 32u) + "..";
+             return line + bound;
+@@ -9639,10 +9648,29 @@ void draw_native_settings_overlay(RendererD3D12& renderer) {
+     std::array<float, 4> status_color = muted;
+     const std::uint64_t now_ms = GetTickCount64();
+     const bool controls_page = tab == kControlsTab;
++#if defined(GALAXY_PS5)
++    // The DualSense in the overlay (native_settings_pad.h): Cross changes, Triangle
++    // applies, Square reverts or clears, L1/R1 page, Circle or Options closes.
++    static constexpr const char* kCaptureHelp = "PRESS A BUTTON, STICK OR TRIGGER  (6 SECONDS)";
++    static constexpr const char* kKeepDisplay = "KEEP DISPLAY? TRIANGLE KEEP  CIRCLE UNDO  %u";
++    static constexpr const char* kControlsPending = "%u CHANGE%s  TRIANGLE APPLY  CIRCLE DISCARD";
++    static constexpr const char* kPending = "%u CHANGE%s  TRIANGLE APPLY  SQUARE UNDO";
++    static constexpr const char* kToggleHelp = "TOUCHPAD+OPTIONS TOGGLE  L1/R1 PAGE";
++    static constexpr const char* kControlsHelp = "CROSS ADD INPUT  SQUARE CLEAR  CIRCLE CLOSE";
++    static constexpr const char* kMoveHelp = "D-PAD MOVE+CHANGE  CROSS CHANGE  CIRCLE CLOSE";
++#else
++    static constexpr const char* kCaptureHelp = "PRESS A BUTTON, STICK OR TRIGGER  ESC CANCEL";
++    static constexpr const char* kKeepDisplay = "KEEP DISPLAY? ENTER/Y KEEP  ESC/B UNDO  %u";
++    static constexpr const char* kControlsPending = "%u CHANGE%s  SPACE/Y APPLY  ESC/B DISCARD";
++    static constexpr const char* kPending = "%u CHANGE%s  ENTER/Y APPLY  BACKSPACE/X UNDO";
++    static constexpr const char* kToggleHelp = "F1, VIEW+MENU OR MINUS+PLUS TOGGLE  TAB/LB/RB PAGE";
++    static constexpr const char* kControlsHelp = "ENTER/A ADD INPUT  BACKSPACE/X CLEAR  ESC/B CLOSE";
++    static constexpr const char* kMoveHelp = "ARROWS/D-PAD MOVE+CHANGE  ESC/B CLOSE";
++#endif
+     if (controls_capturing()) {
+         status = s_controls_scheme == galaxy::input::ControlScheme::Keyboard
+             ? "PRESS A KEY OR MOUSE BUTTON  ESC CANCEL"
+-            : "PRESS A BUTTON, STICK OR TRIGGER  ESC CANCEL";
++            : kCaptureHelp;
+         status_color = accent;
+     } else if (s_controls_message_until_ms > now_ms) {
+         status = s_controls_message;
+@@ -9651,8 +9679,7 @@ void draw_native_settings_overlay(RendererD3D12& renderer) {
+         const std::uint64_t left_ms = s_display_confirm_deadline_ms > now_ms
+             ? s_display_confirm_deadline_ms - now_ms : 0u;
+         char line[96]{};
+-        std::snprintf(line, sizeof(line),
+-                      "KEEP DISPLAY? ENTER/Y KEEP  ESC/B UNDO  %u",
++        std::snprintf(line, sizeof(line), kKeepDisplay,
+                       static_cast<unsigned>((left_ms + 999u) / 1000u));
+         status = line;
+         status_color = accent;
+@@ -9661,9 +9688,7 @@ void draw_native_settings_overlay(RendererD3D12& renderer) {
+         status_color = error;
+     } else if (const unsigned pending = pending_settings_changes(); pending != 0u) {
+         char line[96]{};
+-        std::snprintf(line, sizeof(line),
+-                      controls_page ? "%u CHANGE%s  SPACE/Y APPLY  ESC/B DISCARD"
+-                                    : "%u CHANGE%s  ENTER/Y APPLY  BACKSPACE/X UNDO",
++        std::snprintf(line, sizeof(line), controls_page ? kControlsPending : kPending,
+                       pending, pending == 1u ? "" : "S");
+         status = line;
+         status_color = accent;
+@@ -9682,15 +9707,14 @@ void draw_native_settings_overlay(RendererD3D12& renderer) {
+         panel_x + 28,
+         footer_y + footer_step,
+         footer_scale,
+-        "F1, VIEW+MENU OR MINUS+PLUS TOGGLE  TAB/LB/RB PAGE",
++        kToggleHelp,
+         muted);
+     ui_text(
+         renderer,
+         panel_x + 28,
+         footer_y + footer_step * 2,
+         footer_scale,
+-        controls_page ? "ENTER/A ADD INPUT  BACKSPACE/X CLEAR  ESC/B CLOSE"
+-                      : "ARROWS/D-PAD MOVE+CHANGE  ESC/B CLOSE",
++        controls_page ? kControlsHelp : kMoveHelp,
+         muted);
+ }
+ 
+@@ -9714,7 +9738,12 @@ void draw_native_settings_hint(RendererD3D12& renderer) {
      if (s_bb_width < 427u || s_bb_height < 240u) {
          return;
      }
@@ -812,6 +945,77 @@ index 046beb8..b2d7b01 100644
      const auto* src = reinterpret_cast<const std::uint8_t*>(guest_bytes);
      std::optional<ContentKey> content_key;
      if (decoded_content_cache_enabled() &&
+diff --git a/runtime/src/input_bindings.cpp b/runtime/src/input_bindings.cpp
+index 7787dfa..141b278 100644
+--- a/runtime/src/input_bindings.cpp
++++ b/runtime/src/input_bindings.cpp
+@@ -41,8 +41,14 @@ constexpr std::array<const char*, kWiiTargetCount> kTargetLabels{
+ 
+ constexpr std::array<const char*, kControlSchemeCount> kSchemeIds{
+     "keyboard", "xbox", "switch_pro", "switch_pro2"};
++#if defined(GALAXY_PS5)
++// The console's one controller is the DualSense, read through XInput.
++constexpr std::array<const char*, kControlSchemeCount> kSchemeLabels{
++    "KEYBOARD", "DUALSENSE", "SWITCH PRO", "PRO CONTROLLER 2"};
++#else
+ constexpr std::array<const char*, kControlSchemeCount> kSchemeLabels{
+     "KEYBOARD", "XBOX", "SWITCH PRO", "PRO CONTROLLER 2"};
++#endif
+ 
+ struct NamedKey {
+     std::uint8_t vk;
+@@ -80,6 +86,18 @@ constexpr std::array<const char*, pad::kButtonBitCount> kSwitchButtonNames{
+ 
+ constexpr std::array<const char*, 4> kStickAxisNames{"LX", "LY", "RX", "RY"};
+ 
++#if defined(GALAXY_PS5)
++// What the overlay shows for the Xbox names on the console (ps5/compat/src/xinput.cpp:
++// Cross A, Circle B, Square X, Triangle Y, Options Menu, the touchpad button View).
++constexpr std::array<const char*, pad::kButtonBitCount> kDualSenseButtonNames{
++    "D-pad Up", "D-pad Down", "D-pad Left", "D-pad Right", "Options", "Touchpad", "L3", "R3",
++    "L1", "R1", "PS", "Create", "Cross", "Circle", "Square", "Triangle", "GL", "GR", "C"};
++// LX+, LX-, LY+, LY-, RX+, RX-, RY+, RY-.
++constexpr std::array<const char*, 8> kDualSenseStickNames{
++    "L stick right", "L stick left", "L stick up", "L stick down",
++    "R stick right", "R stick left", "R stick up", "R stick down"};
++#endif
++
+ bool iequals(std::string_view a, std::string_view b) noexcept {
+     if (a.size() != b.size()) return false;
+     for (std::size_t i = 0; i < a.size(); ++i) {
+@@ -523,6 +541,32 @@ std::optional<InputSource> parse_input_source(ControlScheme scheme, std::string_
+     return std::nullopt;
+ }
+ 
++std::string display_target_bindings(ControlScheme scheme, const TargetBindings& bindings) {
++#if defined(GALAXY_PS5)
++    if (scheme == ControlScheme::Xbox) {
++        std::string text;
++        for (const InputSource& source : bindings) {
++            if (source.empty()) continue;
++            if (!text.empty()) text += ", ";
++            if (source.kind == SourceKind::Button && source.code < pad::kButtonBitCount) {
++                text += kDualSenseButtonNames[source.code];
++            } else if ((source.kind == SourceKind::AxisPositive || source.kind == SourceKind::AxisNegative) &&
++                       (static_cast<PadAxis>(source.code) == PadAxis::LeftTrigger ||
++                        static_cast<PadAxis>(source.code) == PadAxis::RightTrigger)) {
++                text += static_cast<PadAxis>(source.code) == PadAxis::LeftTrigger ? "L2" : "R2";
++            } else if ((source.kind == SourceKind::AxisPositive || source.kind == SourceKind::AxisNegative) &&
++                       source.code < kStickAxisNames.size()) {
++                text += kDualSenseStickNames[source.code * 2u + (source.kind == SourceKind::AxisPositive ? 0u : 1u)];
++            } else {
++                text += format_input_source(scheme, source);
++            }
++        }
++        return text.empty() ? std::string("None") : text;
++    }
++#endif
++    return format_target_bindings(scheme, bindings);
++}
++
+ std::string format_target_bindings(ControlScheme scheme, const TargetBindings& bindings) {
+     std::string text;
+     for (const InputSource& source : bindings) {
 diff --git a/runtime/src/native_host.cpp b/runtime/src/native_host.cpp
 index f002418..592d1ca 100644
 --- a/runtime/src/native_host.cpp

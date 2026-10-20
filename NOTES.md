@@ -177,6 +177,13 @@ pipeline/texture caches, post-processing) for Vulkan, the console runs it as wri
   pack entry under GALAXY_PS5_TEXPACK_MB (2048 default), least recently used dropped. Entries
   keep the GX size (shaders scale by it) and allocation_bytes 0 (never pooled). First run: 84 of
   115 textures by the title screen were in the pack, 150 MiB, 60 fps held (one 28 ms upload).
+- **PlayStation buttons only in the settings overlay** (Gary 2026-10-20): on PS5 the controls page
+  edits the DualSense (the Xbox scheme, labelled DUALSENSE) with no INPUT or EDIT rows; bindings
+  show as CROSS/CIRCLE/SQUARE/TRIANGLE, L1/R1, L2/R2, L3/R3, OPTIONS, TOUCHPAD, L/R STICK
+  (input_bindings.cpp display_target_bindings; runtime_settings.ini keeps the Xbox names), and
+  the footer help is the pad's (TOUCHPAD+OPTIONS toggle, L1/R1 page, Cross change/add, Triangle
+  apply, Square undo/clear, Circle close). Seen on the console with the virtual pad. Not done:
+  the game's own prompts ("Press both (A) and (B)") are its textures.
 - AA defaults to auto on PS5 (render_config.h aa_mode 2; Gary 2026-10-20). A saved config.ini wins.
 - Settings overlay: hold the touchpad, press Options (Nebula's View+Menu chord); the corner
   hint says so on PS5.
