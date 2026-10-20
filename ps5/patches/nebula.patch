@@ -228,6 +228,61 @@ index 05a28a3..f7cf73a 100644
  [[nodiscard]] std::byte* mem1_host_view() noexcept;
  [[nodiscard]] std::byte* mem2_host_view() noexcept;
  
+diff --git a/runtime/include/galaxy/gx/render_config.h b/runtime/include/galaxy/gx/render_config.h
+index 00d5337..ebb3618 100644
+--- a/runtime/include/galaxy/gx/render_config.h
++++ b/runtime/include/galaxy/gx/render_config.h
+@@ -108,7 +108,11 @@ struct RenderConfig {
+ 
+     // false presents with the plain bilinear blit (A/B and fallback).
+     bool     post_process        = true;
++#if defined(GALAXY_PS5)
++    unsigned aa_mode             = 2;  // auto on the console (Gary's choice)
++#else
+     unsigned aa_mode             = 0;
++#endif
+     unsigned smaa_quality        = 2;
+     unsigned upscaler            = 0;
+     unsigned temporal_quality    = 1;
+diff --git a/runtime/include/galaxy/gx/texture_cache.h b/runtime/include/galaxy/gx/texture_cache.h
+index 2f4238e..2058a14 100644
+--- a/runtime/include/galaxy/gx/texture_cache.h
++++ b/runtime/include/galaxy/gx/texture_cache.h
+@@ -396,6 +396,34 @@ private:
+     std::unordered_map<EfbAliasKey, Entry, EfbAliasKeyHasher> efb_aliases_;
+     detail::ConservativeGuestRangeEnvelope alias_guest_envelope_;
+     std::vector<std::vector<Entry>> retired_entries_;
++#if defined(GALAXY_PS5)
++    // The HD pack (ps5/gx/texture_pack.h). GPU copies by pack entry, kept under
++    // a budget (least recently used dropped); each frame slot's upload buffers,
++    // released at its next begin_frame; decodes shown with the original while
++    // their replacement loads, dropped once it has.
++    struct PackTexture {
++        Microsoft::WRL::ComPtr<ID3D12Resource> texture;
++        DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
++        unsigned mips = 1;
++        std::uint64_t bytes = 0;
++        std::uint64_t last_used = 0;
++    };
++    std::unordered_map<std::uint32_t, PackTexture> pack_textures_;
++    std::vector<std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>>> pack_staging_;
++    std::unordered_map<std::uint32_t, std::vector<Key>> pack_waiting_;
++    std::uint64_t pack_bytes_ = 0;
++    std::uint64_t pack_frame_ = 0;
++    std::uint64_t pack_hashed_ = 0;
++    std::uint64_t pack_matched_ = 0;
++    std::uint64_t pack_uploads_ = 0;
++    std::uint64_t pack_evictions_ = 0;
++    std::uint64_t pack_reported_ = 0;
++    unsigned pack_names_logged_ = 0;
++    [[nodiscard]] bool pack_get(const Key& key, const TexImage& image, const std::byte* guest_bytes,
++                                std::uint32_t total_guest_size, TextureHandle& handle);
++    void pack_begin_frame(unsigned frame_slot, unsigned frames_in_flight);
++    void pack_evict_to_budget(std::uint32_t keep);
++#endif
+     // Recycled decoded-texture resources. Creating a committed resource on first use can stall the texture
+     // flush, so a GPU-idle retired texture of the same size and mip count is reused instead. RGBA8 2D, no
+     // flags, PSR state.
 diff --git a/runtime/include/galaxy/native_api.h b/runtime/include/galaxy/native_api.h
 index 6a10239..b50cfd0 100644
 --- a/runtime/include/galaxy/native_api.h
@@ -476,6 +531,287 @@ index aee5bd5..46dce87 100644
      const int scale = s_bb_height >= 1440u ? 3 : (s_bb_height >= 720u ? 2 : 1);
      int text_w = -scale;
      for (const char* ch = kHint; *ch != '\0'; ++ch) {
+diff --git a/runtime/src/gx/texture_cache.cpp b/runtime/src/gx/texture_cache.cpp
+index 046beb8..b2d7b01 100644
+--- a/runtime/src/gx/texture_cache.cpp
++++ b/runtime/src/gx/texture_cache.cpp
+@@ -36,6 +36,10 @@
+ #include <thread>
+ #include <vector>
+ 
++#if defined(GALAXY_PS5)
++#include "texture_pack.h"
++#endif
++
+ using Microsoft::WRL::ComPtr;
+ 
+ namespace galaxy::gx {
+@@ -1314,6 +1318,9 @@ void TextureCache::begin_frame(
+     upload_arenas_[frame_slot].active_chunk = 0;
+     upload_arenas_[frame_slot].cursor = 0;
+     current_frame_slot_ = frame_slot;
++#if defined(GALAXY_PS5)
++    pack_begin_frame(frame_slot, frames_in_flight);
++#endif
+ }
+ 
+ bool TextureCache::preallocate_upload_arenas(unsigned frames_in_flight) {
+@@ -1980,6 +1987,240 @@ void TextureCache::invalidate_all() {
+     // Retired SRV slots return to the free list after their frame-slot fence.
+ }
+ 
++#if defined(GALAXY_PS5)
++// ---------------------------------------------------------------------------
++// HD pack (ps5/gx/texture_pack.h)
++// ---------------------------------------------------------------------------
++
++namespace {
++std::uint64_t pack_budget_bytes() {
++    static const std::uint64_t budget = [] {
++        char value[16]{};
++        std::size_t length = 0;
++        if (getenv_s(&length, value, sizeof(value), "GALAXY_PS5_TEXPACK_MB") == 0 && length > 1) {
++            return static_cast<std::uint64_t>(std::strtoul(value, nullptr, 10)) << 20;
++        }
++        return std::uint64_t{2048} << 20;
++    }();
++    return budget;
++}
++}  // namespace
++
++// A first-use decode whose guest bytes have a replacement in the pack: true
++// with `handle` set when the replacement's GPU copy is ready. Otherwise the
++// original decodes; while the replacement loads, the decode's key is kept so
++// pack_begin_frame drops it once the replacement is ready.
++bool TextureCache::pack_get(const Key& key, const TexImage& image, const std::byte* guest_bytes,
++                            std::uint32_t total_guest_size, TextureHandle& handle) {
++    const std::uint32_t base_bytes = texture_guest_byte_size(image.format, image.width, image.height, 1u);
++    const std::uint64_t hash = pack::xxh64(guest_bytes, base_bytes);
++    ++pack_hashed_;
++    const auto id = pack::lookup(image.width, image.height, static_cast<std::uint8_t>(image.format), hash);
++    if (pack_names_logged_ < 16u) {
++        ++pack_names_logged_;
++        std::fprintf(stderr, "[texpack] tex1_%ux%u_%016llx_%u %s\n", image.width, image.height,
++                     static_cast<unsigned long long>(hash), static_cast<unsigned>(image.format),
++                     id ? "in the pack" : "-");
++    }
++    if (!id) {
++        return false;
++    }
++    ++pack_matched_;
++    auto found = pack_textures_.find(*id);
++    if (found == pack_textures_.end()) {
++        if (upload_list_ == nullptr || pack_staging_.empty()) {
++            return false;
++        }
++        const std::shared_ptr<const pack::Image> loaded = pack::take(*id);
++        if (!loaded) {
++            pack_waiting_[*id].push_back(key);
++            return false;
++        }
++        D3D12_RESOURCE_DESC rd{};
++        rd.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
++        rd.Width            = loaded->width;
++        rd.Height           = loaded->height;
++        rd.DepthOrArraySize = 1;
++        rd.MipLevels        = static_cast<UINT16>(loaded->mips);
++        rd.Format           = loaded->format;
++        rd.SampleDesc.Count = 1;
++        rd.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
++        std::vector<D3D12_PLACED_SUBRESOURCE_FOOTPRINT> layouts(loaded->mips);
++        std::vector<UINT> rows(loaded->mips);
++        std::vector<UINT64> row_bytes(loaded->mips);
++        UINT64 staging_bytes = 0;
++        device_->GetCopyableFootprints(&rd, 0, loaded->mips, 0, layouts.data(), rows.data(), row_bytes.data(),
++                                       &staging_bytes);
++        D3D12_HEAP_PROPERTIES default_heap{};
++        default_heap.Type = D3D12_HEAP_TYPE_DEFAULT;
++        D3D12_HEAP_PROPERTIES upload_heap{};
++        upload_heap.Type = D3D12_HEAP_TYPE_UPLOAD;
++        D3D12_RESOURCE_DESC bd{};
++        bd.Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER;
++        bd.Width            = staging_bytes;
++        bd.Height           = 1;
++        bd.DepthOrArraySize = 1;
++        bd.MipLevels        = 1;
++        bd.Format           = DXGI_FORMAT_UNKNOWN;
++        bd.SampleDesc.Count = 1;
++        bd.Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
++        ComPtr<ID3D12Resource> texture;
++        ComPtr<ID3D12Resource> staging;
++        void* mapped = nullptr;
++        if (staging_bytes == 0u || staging_bytes == UINT64_MAX ||
++            FAILED(device_->CreateCommittedResource(&default_heap, D3D12_HEAP_FLAG_NONE, &rd,
++                                                    D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
++                                                    IID_PPV_ARGS(&texture))) ||
++            FAILED(device_->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &bd,
++                                                    D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
++                                                    IID_PPV_ARGS(&staging))) ||
++            FAILED(staging->Map(0, nullptr, &mapped)) || mapped == nullptr) {
++            std::fprintf(stderr, "[texpack] could not create a %ux%u texture (format %d, %u mips)\n", loaded->width,
++                         loaded->height, static_cast<int>(loaded->format), loaded->mips);
++            return false;
++        }
++        auto* const dst = static_cast<std::uint8_t*>(mapped);
++        for (unsigned level = 0; level < loaded->mips; ++level) {
++            const std::uint32_t copy_rows = std::min<std::uint32_t>(rows[level], loaded->level_rows[level]);
++            const std::size_t copy_bytes =
++                std::min<std::size_t>(static_cast<std::size_t>(row_bytes[level]), loaded->level_row_bytes[level]);
++            for (std::uint32_t row = 0; row < copy_rows; ++row) {
++                std::memcpy(dst + layouts[level].Offset + static_cast<std::size_t>(row) * layouts[level].Footprint.RowPitch,
++                            loaded->data.data() + loaded->level_offsets[level] +
++                                static_cast<std::size_t>(row) * loaded->level_row_bytes[level],
++                            copy_bytes);
++            }
++        }
++        staging->Unmap(0, nullptr);
++        for (unsigned level = 0; level < loaded->mips; ++level) {
++            D3D12_TEXTURE_COPY_LOCATION copy_dst{};
++            copy_dst.pResource        = texture.Get();
++            copy_dst.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
++            copy_dst.SubresourceIndex = level;
++            D3D12_TEXTURE_COPY_LOCATION copy_src{};
++            copy_src.pResource       = staging.Get();
++            copy_src.Type            = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
++            copy_src.PlacedFootprint = layouts[level];
++            upload_list_->CopyTextureRegion(&copy_dst, 0, 0, 0, &copy_src, nullptr);
++        }
++        D3D12_RESOURCE_BARRIER bar{};
++        bar.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++        bar.Transition.pResource   = texture.Get();
++        bar.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
++        bar.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
++        bar.Transition.StateAfter  = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
++        upload_list_->ResourceBarrier(1, &bar);
++        pack_staging_[current_frame_slot_].push_back(std::move(staging));
++        PackTexture copy{};
++        copy.texture = std::move(texture);
++        copy.format = loaded->format;
++        copy.mips = loaded->mips;
++        copy.bytes = staging_bytes;
++        found = pack_textures_.emplace(*id, std::move(copy)).first;
++        pack_bytes_ += staging_bytes;
++        ++pack_uploads_;
++        pack_evict_to_budget(*id);
++    }
++    found->second.last_used = pack_frame_;
++
++    const UINT srv_idx = allocate_srv_index();
++    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc{};
++    srv_desc.Format                  = found->second.format;
++    srv_desc.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
++    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
++    srv_desc.Texture2D.MipLevels     = found->second.mips;
++    D3D12_CPU_DESCRIPTOR_HANDLE cpu = srv_cpu_base_;
++    cpu.ptr += static_cast<SIZE_T>(srv_idx) * srv_stride_;
++    device_->CreateShaderResourceView(found->second.texture.Get(), &srv_desc, cpu);
++
++    // The GX size, not the replacement's: the shaders scale coordinates by it.
++    // No allocation bytes: pack_textures_ owns the memory, and it is never pooled.
++    Entry entry{};
++    entry.texture = found->second.texture;
++    entry.allocation_bytes = 0;
++    entry.handle.resource = entry.texture.Get();
++    entry.handle.srv_index = srv_idx;
++    entry.handle.width = image.width;
++    entry.handle.height = image.height;
++    entry.handle.mip_levels = static_cast<std::uint8_t>(found->second.mips);
++    entry.handle.from_efb_copy = false;
++    entry.handle.generated_mips = false;
++    entry.handle.guest_byte_size = total_guest_size;
++    handle = entry.handle;
++    if (entries_.empty()) decoded_guest_envelope_.clear();
++    decoded_guest_envelope_.include(image.guest_addr, total_guest_size);
++    entries_.emplace(key, std::move(entry));
++    decoded_lru_track(key);
++    return true;
++}
++
++// Over budget: the least recently used GPU copies go, with the decoded
++// entries that show them (retired through their frame slot).
++void TextureCache::pack_evict_to_budget(std::uint32_t keep) {
++    while (pack_bytes_ > pack_budget_bytes() && pack_textures_.size() > 1u) {
++        auto victim = pack_textures_.end();
++        for (auto it = pack_textures_.begin(); it != pack_textures_.end(); ++it) {
++            if (it->first != keep && (victim == pack_textures_.end() || it->second.last_used < victim->second.last_used)) {
++                victim = it;
++            }
++        }
++        if (victim == pack_textures_.end()) {
++            return;
++        }
++        ID3D12Resource* const resource = victim->second.texture.Get();
++        for (auto it = entries_.begin(); it != entries_.end();) {
++            if (it->second.texture.Get() == resource) {
++                decoded_lru_release(it->first, it->second);
++                retire(std::move(it->second));
++                it = entries_.erase(it);
++            } else {
++                ++it;
++            }
++        }
++        pack_bytes_ -= std::min(pack_bytes_, victim->second.bytes);
++        ++pack_evictions_;
++        pack_textures_.erase(victim);
++    }
++}
++
++void TextureCache::pack_begin_frame(unsigned frame_slot, unsigned frames_in_flight) {
++    if (pack_staging_.size() != frames_in_flight) {
++        pack_staging_.resize(frames_in_flight);
++    }
++    // This slot's fence has been waited on: its uploads are done.
++    pack_staging_[frame_slot].clear();
++    ++pack_frame_;
++    if (!pack_waiting_.empty() && pack::take_new_ready()) {
++        for (auto waiting = pack_waiting_.begin(); waiting != pack_waiting_.end();) {
++            if (!pack::settled(waiting->first)) {
++                ++waiting;
++                continue;
++            }
++            for (const Key& key : waiting->second) {
++                const auto it = entries_.find(key);
++                if (it == entries_.end() || it->second.allocation_bytes == 0u) {
++                    continue;
++                }
++                decoded_lru_release(key, it->second);
++                retire(std::move(it->second));
++                entries_.erase(it);
++            }
++            waiting = pack_waiting_.erase(waiting);
++        }
++    }
++    if (pack_frame_ % 600u == 0u && pack_hashed_ != pack_reported_) {
++        pack_reported_ = pack_hashed_;
++        std::fprintf(stderr,
++                     "[texpack] looked up %llu, in the pack %llu, uploaded %llu, on the GPU %zu (%.1f MiB), "
++                     "dropped %llu, waiting %zu\n",
++                     static_cast<unsigned long long>(pack_hashed_), static_cast<unsigned long long>(pack_matched_),
++                     static_cast<unsigned long long>(pack_uploads_), pack_textures_.size(),
++                     static_cast<double>(pack_bytes_) / 1048576.0, static_cast<unsigned long long>(pack_evictions_),
++                     pack_waiting_.size());
++    }
++}
++#endif
++
+ // ---------------------------------------------------------------------------
+ // get: primary texture fetch
+ // ---------------------------------------------------------------------------
+@@ -2227,6 +2468,14 @@ TextureHandle TextureCache::get(
+             DependencyReadSource::Texture, image.guest_addr,
+             std::span<const std::byte>(guest_bytes, total_guest_size));
+     }
++#if defined(GALAXY_PS5)
++    if (pack::active()) {
++        TextureHandle replaced{};
++        if (pack_get(key, image, guest_bytes, total_guest_size, replaced)) {
++            return replaced;
++        }
++    }
++#endif
+     const auto* src = reinterpret_cast<const std::uint8_t*>(guest_bytes);
+     std::optional<ContentKey> content_key;
+     if (decoded_content_cache_enabled() &&
 diff --git a/runtime/src/native_host.cpp b/runtime/src/native_host.cpp
 index f002418..592d1ca 100644
 --- a/runtime/src/native_host.cpp

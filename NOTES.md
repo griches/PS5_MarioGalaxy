@@ -165,6 +165,19 @@ pipeline/texture caches, post-processing) for Vulkan, the console runs it as wri
   shader modules. vkd3d.patch adds vkd3d_ps5_precompile_graphics_pipeline; pipeline_cache.cpp
   calls it after each GX PSO (topology from its type, stride sizeof(GxVertexOut), EFB depth).
   The 263 ms in-game spike went; worst frame on the test route 27 ms.
+- **HD texture pack** (CDAMJC/razius "SMG1 HD Textures Full Size DDS" + Bighead's additions,
+  from Gary's Drive; 768 DDS, 1.8 GB, extracted into gamedata/textures, ignored by git):
+  `console.sh textures` puts the DDS files in /data/homebrew/PPSA99315/textures/RMG/ (~1.5 min
+  first time). ps5/gx/texture_pack.cpp indexes /app0/textures by Dolphin's names
+  (tex1_WxH[_m]_HASH[_TLUT]_FMT[_arb]; 748 keys) and loads DDS on one worker (BC7/BC1-3, RGB32 ->
+  RGBA8, SRGB read as UNORM). TextureCache::get (nebula.patch, `#if defined(GALAXY_PS5)`) hashes
+  a first-use decode's base level like Dolphin (XXH64 seed 0, block-rounded guest bytes); a match
+  shows the original until the file has loaded, then pack_begin_frame drops that decode and the
+  next get uploads the replacement (committed texture + per-slot upload buffer). GPU copies by
+  pack entry under GALAXY_PS5_TEXPACK_MB (2048 default), least recently used dropped. Entries
+  keep the GX size (shaders scale by it) and allocation_bytes 0 (never pooled). First run: 84 of
+  115 textures by the title screen were in the pack, 150 MiB, 60 fps held (one 28 ms upload).
+- AA defaults to auto on PS5 (render_config.h aa_mode 2; Gary 2026-10-20). A saved config.ini wins.
 - Settings overlay: hold the touchpad, press Options (Nebula's View+Menu chord); the corner
   hint says so on PS5.
 - Small Nebula edits (in nebula.patch): uint64 lambda return types, RECT LONG casts,

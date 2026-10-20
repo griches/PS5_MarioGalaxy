@@ -3,6 +3,9 @@
 #
 #   ps5/tools/console.sh deploy              dist/<TITLE_ID>/ to the console (FTP)
 #   ps5/tools/console.sh game-files          gamedata/content and the boot image to the title folder
+#   ps5/tools/console.sh textures            the HD pack's DDS files (gamedata/textures, Dolphin's
+#                                            RMG/ layout) to textures/ (files already there at the
+#                                            same size are skipped)
 #   ps5/tools/console.sh run [SECONDS]       launch it and follow klog (default 120 s)
 #   ps5/tools/console.sh env [KEY=VALUE...]  write the title's env.txt (no arguments: remove it)
 #   ps5/tools/console.sh quit                close the title
@@ -19,7 +22,7 @@ title_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["titl
 host=${PS5_HOST:-$(sed -n 's/^PS5_HOST=//p' "$vulkan/.env")}
 ftp="ftp://$host:2121/data/homebrew/$title_id"
 
-case ${1:?usage: console.sh deploy|game-files|run|env|quit} in
+case ${1:?usage: console.sh deploy|game-files|textures|run|env|quit} in
 deploy)
     # The art always goes: every 3840x2160 pic0/pic1.dds has the same size, and
     # the tool skips a file whose size matches. The home screen shows
@@ -66,11 +69,25 @@ env)
         printf 'env.txt: %s\n' "$@"
     fi
     ;;
+textures)
+    put() {
+        local file=$1 rel=${1#"$root/gamedata/textures/"}
+        [[ $rel == */RMG/* ]] && rel=RMG/${rel#*/RMG/}
+        local url="$ftp/textures/${rel// /%20}" size have
+        size=$(stat -f %z "$file")
+        have=$(curl -s -I "$url" | tr -d '\r' | awk '/Content-Length/ {print $2}')
+        [[ $have == "$size" ]] && return
+        for _ in 1 2 3; do curl -s --ftp-create-dirs -T "$file" "$url" && { echo "  $rel"; return; }; done
+        echo "FAILED $rel" >&2
+    }
+    export -f put; export root ftp
+    find "$root/gamedata/textures" -name '*.dds' -print0 | xargs -0 -n1 -P3 bash -c 'put "$0"'
+    ;;
 quit)
     printf 'kill %s\n' "$title_id" | nc -w 5 "$host" 9111
     ;;
 *)
-    echo "usage: console.sh deploy|game-files|run|env|quit" >&2
+    echo "usage: console.sh deploy|game-files|textures|run|env|quit" >&2
     exit 2
     ;;
 esac

@@ -247,8 +247,8 @@ list(TRANSFORM runtime_sources PREPEND "${runtime}/src/")
 add_library(nebula_runtime STATIC ${runtime_sources}
     ${generated}/dsp/rmge01_dsp.cpp
     ${uber_embed_cpp} ${post_shader_headers}
-    ${ps5}/gx/d3d12_ps5.cpp ${ps5}/gx/dxgi_ps5.cpp)
-target_include_directories(nebula_runtime PRIVATE ${windows_includes} ${runtime}/softfloat
+    ${ps5}/gx/d3d12_ps5.cpp ${ps5}/gx/dxgi_ps5.cpp ${ps5}/gx/texture_pack.cpp)
+target_include_directories(nebula_runtime PRIVATE ${windows_includes} ${runtime}/softfloat ${ps5}/gx
     ${vkd3d}/include ${PS5_VULKAN_HEADERS} ${post_shader_dir} ${nebula}/third_party/smaa)
 target_compile_options(nebula_runtime PRIVATE ${windows_flags} -g1 -fwrapv -fno-strict-aliasing)
 target_link_libraries(nebula_runtime PUBLIC softfloat)
