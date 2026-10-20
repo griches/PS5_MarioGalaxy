@@ -141,6 +141,13 @@ pipeline/texture caches, post-processing) for Vulkan, the console runs it as wri
 - Shaders: uber HLSL embedded as text (compiled at start, ~3 s); specialised pipelines
   compiled at run time by vkd3d-shader on Nebula's workers; presentation passes compiled at
   build time by `ps5/tools/post-shaders.sh` with the host vkd3d-compiler (Nebula uses fxc).
+- Saving: the console's /data has **no hard links**, so Nebula's journalled ISFS Rename (backup
+  hard link of the old target, link count 2) failed and ended the runtime while saving the
+  banner. On PS5 the journal is skipped (native_host.cpp, `#if !defined(GALAXY_PS5)`): POSIX
+  rename() replaces atomically; compat's MoveFileExW moves the metadata streams with the file.
+  A crash there left `<file>.__galaxy_isfs_rename_journal__.<pid>.<n>` beside the save.
+- DXGI's GetFrameLatencyWaitableObject hands the caller the handle (Nebula closes it): a new
+  event each call. Nebula's crash reporter must not read code bytes (execute-only): skipped.
 - Small Nebula edits (in nebula.patch): uint64 lambda return types, RECT LONG casts,
   display_modes' EDID names off on PS5.
 - Internal resolution follows the window: 6x (3840x3168) by default.
