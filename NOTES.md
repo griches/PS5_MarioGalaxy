@@ -164,6 +164,16 @@ pipeline/texture caches, post-processing) for Vulkan, the console runs it as wri
   Observatory: ~118 presents/s, 1 subframe a game frame (cpu ~1.7 ms, gpu ~3.5 ms each), game
   frames mostly 60 but some 2 s windows at 52-58. GALAXY_TRACE_GX_STALLS=1 profiles every GX
   command and drops the game to ~5 frames/s: never in a test env.
+- **Pipeline hitches**: vkd3d compiles a PSO's Vulkan pipeline lazily at its first draw, on
+  the render thread (key: topology, slot strides, DSV VkFormat), so Nebula's prewarm only made
+  shader modules. vkd3d.patch adds vkd3d_ps5_precompile_graphics_pipeline; pipeline_cache.cpp
+  calls it after each GX PSO (topology from its type, stride sizeof(GxVertexOut), EFB depth).
+  The 263 ms in-game spike went; worst frame on the test route 27 ms.
+- **120 Hz frame loss**: a present for the other XFB (the game double-buffers) cancelled the
+  playing interpolation sequence, real frame included (up to 25% of game frames). On PS5 that
+  present waits (gx_backend.cpp, `superseded(...)` counters in [interp-stats]).
+- Settings overlay: hold the touchpad, press Options (Nebula's View+Menu chord); the corner
+  hint says so on PS5.
 - Small Nebula edits (in nebula.patch): uint64 lambda return types, RECT LONG casts,
   display_modes' EDID names off on PS5.
 - Internal resolution follows the window: 6x (3840x3168) by default.

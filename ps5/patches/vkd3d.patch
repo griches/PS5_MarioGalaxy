@@ -1,6 +1,6 @@
-diff -ru a/vkd3d-2.1/include/vkd3d_d3dcommon.h b/vkd3d-2.1/include/vkd3d_d3dcommon.h
+diff -ru a/vkd3d-2.1/include/vkd3d_d3dcommon.h b/include/vkd3d_d3dcommon.h
 --- a/include/vkd3d_d3dcommon.h	2026-05-21 11:19:24
-+++ b/include/vkd3d_d3dcommon.h	2026-10-20 13:10:33
++++ b/include/vkd3d_d3dcommon.h	2026-10-20 14:48:06
 @@ -59,7 +59,7 @@
  typedef GUID *LPCLSID;
  typedef CLSID *REFCLSID;
@@ -10,9 +10,9 @@ diff -ru a/vkd3d-2.1/include/vkd3d_d3dcommon.h b/vkd3d-2.1/include/vkd3d_d3dcomm
  typedef void *HWND;
  typedef void *HMODULE;
  typedef struct LUID {
-diff -ru a/vkd3d-2.1/include/vkd3d_dxgi.h b/vkd3d-2.1/include/vkd3d_dxgi.h
+diff -ru a/vkd3d-2.1/include/vkd3d_dxgi.h b/include/vkd3d_dxgi.h
 --- a/include/vkd3d_dxgi.h	2026-05-21 11:19:24
-+++ b/include/vkd3d_dxgi.h	2026-10-20 13:10:33
++++ b/include/vkd3d_dxgi.h	2026-10-20 14:48:06
 @@ -91,7 +91,7 @@
  typedef GUID *LPCLSID;
  typedef CLSID *REFCLSID;
@@ -22,9 +22,9 @@ diff -ru a/vkd3d-2.1/include/vkd3d_dxgi.h b/vkd3d-2.1/include/vkd3d_dxgi.h
  typedef void *HWND;
  typedef void *HMODULE;
  typedef struct LUID {
-diff -ru a/vkd3d-2.1/include/vkd3d_windows.h b/vkd3d-2.1/include/vkd3d_windows.h
+diff -ru a/vkd3d-2.1/include/vkd3d_windows.h b/include/vkd3d_windows.h
 --- a/include/vkd3d_windows.h	2026-08-24 11:08:15
-+++ b/include/vkd3d_windows.h	2026-10-20 13:10:33
++++ b/include/vkd3d_windows.h	2026-10-20 14:48:06
 @@ -190,7 +190,9 @@
  # define CONTAINING_RECORD(address, type, field) \
          ((type *)((char *)(address) - offsetof(type, field)))
@@ -36,9 +36,39 @@ diff -ru a/vkd3d-2.1/include/vkd3d_windows.h b/vkd3d-2.1/include/vkd3d_windows.h
  #  define __stdcall __attribute__((ms_abi))
  # else
  #  if (__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 2)) || defined(__APPLE__)
-diff -ru a/vkd3d-2.1/libs/vkd3d-utils/vkd3d_utils_main.c b/vkd3d-2.1/libs/vkd3d-utils/vkd3d_utils_main.c
+diff -ru a/vkd3d-2.1/libs/vkd3d/state.c b/libs/vkd3d/state.c
+--- a/libs/vkd3d/state.c	2026-08-24 11:08:15
++++ b/libs/vkd3d/state.c	2026-10-20 14:48:06
+@@ -4343,3 +4343,26 @@
+     vkd3d_uav_clear_state_cleanup(state, device);
+     return hr;
+ }
++
++/* PlayStation 5 port: compile a graphics pipeline state's Vulkan pipeline for
++ * one draw configuration now, on the calling thread, instead of at its first
++ * draw (vkd3d compiles them lazily, on the thread that records the draw). The
++ * key is the one a draw makes: the topology set with IASetPrimitiveTopology,
++ * the stride of vertex buffer slot 0 and the bound DSV's format. */
++HRESULT vkd3d_ps5_precompile_graphics_pipeline(ID3D12PipelineState *iface, D3D12_PRIMITIVE_TOPOLOGY topology,
++        UINT stride, DXGI_FORMAT dsv_format)
++{
++    struct d3d12_pipeline_state *state = unsafe_impl_from_ID3D12PipelineState(iface);
++    uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT] = {0};
++    const struct vkd3d_format *format;
++    VkFormat vk_dsv_format = VK_FORMAT_UNDEFINED;
++    VkRenderPass vk_render_pass;
++
++    if (!state || !d3d12_pipeline_state_is_graphics(state))
++        return E_INVALIDARG;
++    strides[0] = stride;
++    if (dsv_format != DXGI_FORMAT_UNKNOWN && (format = vkd3d_get_format(state->device, dsv_format, true)))
++        vk_dsv_format = format->vk_format;
++    return d3d12_pipeline_state_get_or_create_pipeline(state, topology, strides, vk_dsv_format, &vk_render_pass)
++            ? S_OK : E_FAIL;
++}
+diff -ru a/vkd3d-2.1/libs/vkd3d-utils/vkd3d_utils_main.c b/libs/vkd3d-utils/vkd3d_utils_main.c
 --- a/libs/vkd3d-utils/vkd3d_utils_main.c	2026-08-24 11:08:15
-+++ b/libs/vkd3d-utils/vkd3d_utils_main.c	2026-10-20 13:10:33
++++ b/libs/vkd3d-utils/vkd3d_utils_main.c	2026-10-20 14:48:06
 @@ -124,11 +124,14 @@
      return vkd3d_create_device(&device_create_info, iid, device);
  }

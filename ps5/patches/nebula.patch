@@ -228,6 +228,19 @@ index 05a28a3..f7cf73a 100644
  [[nodiscard]] std::byte* mem1_host_view() noexcept;
  [[nodiscard]] std::byte* mem2_host_view() noexcept;
  
+diff --git a/runtime/include/galaxy/gx/gx_backend.h b/runtime/include/galaxy/gx/gx_backend.h
+index 7fd9337..4a423e8 100644
+--- a/runtime/include/galaxy/gx/gx_backend.h
++++ b/runtime/include/galaxy/gx/gx_backend.h
+@@ -695,6 +695,8 @@ private:
+     std::uint64_t interp_presented_ = 0;
+     std::uint64_t interp_dropped_ = 0;
+     std::uint64_t interp_failed_ = 0;     // sub-frames that could not be recorded
++    // Sequences a present for another frame cancelled, by why it did not start its own.
++    std::array<std::uint64_t, 4> interp_superseded_{};
+     double interp_cpu_ms_ = 0.0;
+     std::int64_t interp_stats_qpc_ = 0;
+     // Render thread: steps the interpolation sequence of the latest frame
 diff --git a/runtime/include/galaxy/native_api.h b/runtime/include/galaxy/native_api.h
 index 6a10239..b50cfd0 100644
 --- a/runtime/include/galaxy/native_api.h
@@ -385,6 +398,84 @@ index 512796e..be1a74b 100644
  }
  
  BOOL CALLBACK collect_monitor(HMONITOR monitor, HDC, LPRECT, LPARAM user) {
+diff --git a/runtime/src/gx/gx_backend.cpp b/runtime/src/gx/gx_backend.cpp
+index 06e35f7..1609256 100644
+--- a/runtime/src/gx/gx_backend.cpp
++++ b/runtime/src/gx/gx_backend.cpp
+@@ -6806,7 +6806,11 @@ void GxBackend::advance_interp_sequence(bool flush) {
+                           << (interp_presented_ != 0u ? interp_cpu_ms_ / static_cast<double>(interp_presented_) : 0.0)
+                           << " gpu-ms-per-subframe="
+                           << (gpu_samples != 0u ? gpu_ms / static_cast<double>(gpu_samples) : 0.0)
+-                          << " measured-presents-hz=" << renderer_.measured_present_hz() << '\n';
++                          << " measured-presents-hz=" << renderer_.measured_present_hz()
++                          << " superseded(no-log/xfb/other/deferred)=" << interp_superseded_[0] << '/'
++                          << interp_superseded_[1] << '/' << interp_superseded_[2] << '/' << interp_superseded_[3]
++                          << '\n';
++                interp_superseded_ = {};
+                 interp_presented_ = 0u;
+                 interp_dropped_ = 0u;
+                 interp_failed_ = 0u;
+@@ -8843,9 +8847,23 @@ void GxBackend::render_frame_on_thread(FrameChunk& chunk) {
+             interp_start_pending_ = true;
+             present_swap_chain = false;
+         } else if (interp_sequence_.active && present_swap_chain) {
++#if defined(GALAXY_PS5)
++            // The other XFB (the game double-buffers): the playing frame shows
++            // first and this present waits for the next one, rather than the
++            // playing frame being lost (a quarter of game frames at 120 Hz).
++            if (selected_xfb != nullptr && selected_xfb->guest_addr != interp_sequence_.xfb_addr) {
++                present_swap_chain = false;
++                ++interp_superseded_[3];
++            } else
++#endif
++            {
+             // Another frame presents now: the playing one is superseded.
+             interp_dropped_ += interp_sequence_.subframes - interp_sequence_.next;
+             interp_sequence_.active = false;
++            ++interp_superseded_[!interp_log_waiting_ ? 0u
++                : selected_xfb == nullptr || selected_xfb->guest_addr != interp_log_xfb_ ? 1u
++                : 2u];
++            }
+         }
+     }
+     const auto pre_present_end = frame_timing_enabled
+diff --git a/runtime/src/gx/pipeline_cache.cpp b/runtime/src/gx/pipeline_cache.cpp
+index 01610bd..fb508b9 100644
+--- a/runtime/src/gx/pipeline_cache.cpp
++++ b/runtime/src/gx/pipeline_cache.cpp
+@@ -17,6 +17,15 @@
+ #include "galaxy/gx/uber_shaders.h"
+ #include "galaxy/gx/shader_keys.h"
+ #include "galaxy/gx/shader_pair_compile.h"
++#if defined(GALAXY_PS5)
++#include "galaxy/gx/vertex_loader.h"
++
++// vkd3d (the console's Direct3D 12) compiles a PSO's Vulkan pipeline at its first
++// draw, on the render thread: ps5/patches/vkd3d.patch lets the worker that made
++// the PSO compile it for the one configuration GX draws use.
++extern "C" HRESULT vkd3d_ps5_precompile_graphics_pipeline(
++    ID3D12PipelineState* state, D3D12_PRIMITIVE_TOPOLOGY topology, UINT stride, DXGI_FORMAT dsv_format);
++#endif
+ #include "galaxy/scope_exit.h"
+ 
+ #pragma warning(push, 0)
+@@ -550,6 +559,16 @@ Microsoft::WRL::ComPtr<ID3D12PipelineState> create_gx_pso(
+         }
+         return nullptr;
+     }
++#if defined(GALAXY_PS5)
++    // The topology GxBackend sets for this PSO's type, the GxVertexOut stream
++    // and the EFB depth view: the key its draws look the pipeline up with.
++    const D3D12_PRIMITIVE_TOPOLOGY topology =
++        pd.PrimitiveTopologyType == D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT ? D3D_PRIMITIVE_TOPOLOGY_POINTLIST
++        : pd.PrimitiveTopologyType == D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE ? D3D_PRIMITIVE_TOPOLOGY_LINELIST
++                                                                          : D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
++    (void)vkd3d_ps5_precompile_graphics_pipeline(
++        pso.Get(), topology, static_cast<UINT>(sizeof(GxVertexOut)), kEfbDepthFormat);
++#endif
+     return pso;
+ }
+ 
 diff --git a/runtime/src/gx/render_config.cpp b/runtime/src/gx/render_config.cpp
 index 83c38c3..0f16099 100644
 --- a/runtime/src/gx/render_config.cpp
@@ -430,7 +521,7 @@ index 83c38c3..0f16099 100644
      }
      cfg.texture_lod_bias = std::min(cfg.texture_lod_bias, 8u);
 diff --git a/runtime/src/gx/renderer_d3d12.cpp b/runtime/src/gx/renderer_d3d12.cpp
-index aee5bd5..5a6533d 100644
+index aee5bd5..46dce87 100644
 --- a/runtime/src/gx/renderer_d3d12.cpp
 +++ b/runtime/src/gx/renderer_d3d12.cpp
 @@ -1680,7 +1680,7 @@ unsigned swap_chain_frame_latency() {
@@ -470,6 +561,19 @@ index aee5bd5..5a6533d 100644
  }
  }  // namespace
  
+@@ -9714,7 +9715,12 @@ void draw_native_settings_hint(RendererD3D12& renderer) {
+     if (s_bb_width < 427u || s_bb_height < 240u) {
+         return;
+     }
++#if defined(GALAXY_PS5)
++    // The DualSense: the touchpad button is View (Back), Options is Menu (Start).
++    static constexpr const char* kHint = "TOUCHPAD+OPTIONS: SETTINGS";
++#else
+     static constexpr const char* kHint = "F1, VIEW+MENU OR MINUS+PLUS: SETTINGS";
++#endif
+     const int scale = s_bb_height >= 1440u ? 3 : (s_bb_height >= 720u ? 2 : 1);
+     int text_w = -scale;
+     for (const char* ch = kHint; *ch != '\0'; ++ch) {
 diff --git a/runtime/src/native_host.cpp b/runtime/src/native_host.cpp
 index f002418..592d1ca 100644
 --- a/runtime/src/native_host.cpp
