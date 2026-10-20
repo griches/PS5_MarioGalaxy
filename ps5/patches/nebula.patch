@@ -241,6 +241,33 @@ index 7fd9337..4a423e8 100644
      double interp_cpu_ms_ = 0.0;
      std::int64_t interp_stats_qpc_ = 0;
      // Render thread: steps the interpolation sequence of the latest frame
+diff --git a/runtime/include/galaxy/gx/render_config.h b/runtime/include/galaxy/gx/render_config.h
+index 00d5337..91b84cb 100644
+--- a/runtime/include/galaxy/gx/render_config.h
++++ b/runtime/include/galaxy/gx/render_config.h
+@@ -15,6 +15,7 @@
+ #include <cmath>
+ #include <cstdint>
+ #include <utility>
++#include <cstdlib>
+ #include <vector>
+ 
+ namespace galaxy::gx {
+@@ -145,6 +146,14 @@ struct RenderConfig {
+ 
+ // Frame-rate choices: 30 and the game's own 60.
+ inline std::vector<unsigned> frame_rate_options() {
++#if defined(GALAXY_PS5)
++    // The console adds 120 (frames in between, on a 120 Hz VRR TV) while the
++    // experimental interpolation is enabled, as ps5/src/main.cpp does by default.
++    if (const char* value = std::getenv("GALAXY_EXPERIMENTAL_INTERPOLATION");
++        value != nullptr && value[0] != '\0' && value[0] != '0') {
++        return {30u, 60u, 120u};
++    }
++#endif
+     return {30u, 60u};
+ }
+ 
 diff --git a/runtime/include/galaxy/native_api.h b/runtime/include/galaxy/native_api.h
 index 6a10239..b50cfd0 100644
 --- a/runtime/include/galaxy/native_api.h
