@@ -1,0 +1,576 @@
+diff --git a/crates/nebula-recomp-cli/src/build_boot_image.rs b/crates/nebula-recomp-cli/src/build_boot_image.rs
+index 031f49a..690bfbb 100644
+--- a/crates/nebula-recomp-cli/src/build_boot_image.rs
++++ b/crates/nebula-recomp-cli/src/build_boot_image.rs
+@@ -4,10 +4,12 @@ use std::{
+     ffi::OsString,
+     fs::{self, File, OpenOptions},
+     io::{self, Write},
+-    os::windows::ffi::OsStrExt,
+     path::{Path, PathBuf},
+     sync::atomic::{AtomicU64, Ordering},
+ };
++#[cfg(windows)]
++use std::os::windows::ffi::OsStrExt;
++#[cfg(windows)]
+ use windows_sys::Win32::Storage::FileSystem::{
+     MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+ };
+@@ -67,6 +69,7 @@ fn create_sibling_temp(output: &Path) -> Result<(PathBuf, File)> {
+     )
+ }
+ 
++#[cfg(windows)]
+ fn wide_null(path: &Path) -> Vec<u16> {
+     path.as_os_str()
+         .encode_wide()
+@@ -74,6 +77,16 @@ fn wide_null(path: &Path) -> Vec<u16> {
+         .collect()
+ }
+ 
++// The console build makes its content on macOS or Linux: there a rename
++// replaces the destination atomically.
++#[cfg(not(windows))]
++fn replace_atomically(temporary: &Path, output: &Path) -> Result<()> {
++    fs::rename(temporary, output).with_context(|| {
++        format!("failed to atomically replace {} with {}", output.display(), temporary.display())
++    })
++}
++
++#[cfg(windows)]
+ fn replace_atomically(temporary: &Path, output: &Path) -> Result<()> {
+     let temporary_wide = wide_null(temporary);
+     let output_wide = wide_null(output);
+diff --git a/crates/nebula-recomp-cli/src/build_pak.rs b/crates/nebula-recomp-cli/src/build_pak.rs
+index 0cfe005..d0ebdc7 100644
+--- a/crates/nebula-recomp-cli/src/build_pak.rs
++++ b/crates/nebula-recomp-cli/src/build_pak.rs
+@@ -6,10 +6,12 @@ use std::{
+     ffi::OsString,
+     fs::{self, File, OpenOptions},
+     io::{self, Read, Seek, SeekFrom, Write},
+-    os::windows::{ffi::OsStrExt, io::AsRawHandle},
+     path::{Component, Path, PathBuf},
+     sync::atomic::{AtomicU64, Ordering},
+ };
++#[cfg(windows)]
++use std::os::windows::{ffi::OsStrExt, io::AsRawHandle};
++#[cfg(windows)]
+ use windows_sys::Win32::{
+     Storage::FileSystem::{MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH},
+     System::{Ioctl::FSCTL_SET_SPARSE, IO::DeviceIoControl},
+@@ -635,6 +637,13 @@ fn preflight(input: &Path, output: &Path) -> Result<PakPlan> {
+     })
+ }
+ 
++// APFS and UFS leave the unwritten ranges of a file as holes without being asked.
++#[cfg(not(windows))]
++fn mark_sparse(_file: &File) -> Result<()> {
++    Ok(())
++}
++
++#[cfg(windows)]
+ fn mark_sparse(file: &File) -> Result<()> {
+     let mut bytes_returned = 0_u32;
+     let succeeded = unsafe {
+@@ -772,6 +781,7 @@ fn create_sibling_temp(output: &Path) -> Result<(PathBuf, File)> {
+     )
+ }
+ 
++#[cfg(windows)]
+ fn wide_null(path: &Path) -> Vec<u16> {
+     path.as_os_str()
+         .encode_wide()
+@@ -779,6 +789,14 @@ fn wide_null(path: &Path) -> Vec<u16> {
+         .collect()
+ }
+ 
++#[cfg(not(windows))]
++fn replace_atomically(temporary: &Path, output: &Path) -> Result<()> {
++    fs::rename(temporary, output).with_context(|| {
++        format!("failed to atomically replace {} with {}", output.display(), temporary.display())
++    })
++}
++
++#[cfg(windows)]
+ fn replace_atomically(temporary: &Path, output: &Path) -> Result<()> {
+     let temporary_wide = wide_null(temporary);
+     let output_wide = wide_null(output);
+diff --git a/crates/nebula-recomp-cli/src/generate.rs b/crates/nebula-recomp-cli/src/generate.rs
+index a8bda08..032a528 100644
+--- a/crates/nebula-recomp-cli/src/generate.rs
++++ b/crates/nebula-recomp-cli/src/generate.rs
+@@ -240,7 +240,6 @@ pub fn generate_all(game: &Path, output: &Path) -> Result<()> {
+     write_generated_text_create_new(&output.join("dsp").join("CMakeLists.txt"), DSP_CMAKE)?;
+     write_generated_text_create_new(&output.join("CMakeLists.txt"), BUILD_CMAKE)?;
+     println!("STEP 5/5 Building the boot image");
+-    #[cfg(target_os = "windows")]
+     crate::build_boot_image::run(game, &output.join("RMGE01_boot_image.bin"))?;
+ 
+     // Report the options that were actually used, not a second copy of them. Literals
+@@ -376,7 +375,6 @@ pub fn resolve_game_data_root(input: &Path) -> Result<std::path::PathBuf> {
+ }
+ 
+ /// Small partition files the runtime reads directly, next to game.pak.
+-#[cfg(target_os = "windows")]
+ const CONTENT_FILES: &[&str] = &[
+     "sys/boot.bin",
+     "sys/bi2.bin",
+@@ -388,7 +386,6 @@ const CONTENT_FILES: &[&str] = &[
+ 
+ /// Build the installed content package: a sparse game.pak plus the loose
+ /// partition files the runtime opens directly. The source is only read.
+-#[cfg(target_os = "windows")]
+ pub fn package_content(game: &Path, output: &Path) -> Result<()> {
+     if output.exists() {
+         bail!(
+diff --git a/crates/nebula-recomp-cli/src/main.rs b/crates/nebula-recomp-cli/src/main.rs
+index d695b09..5d817f6 100644
+--- a/crates/nebula-recomp-cli/src/main.rs
++++ b/crates/nebula-recomp-cli/src/main.rs
+@@ -336,7 +336,6 @@ enum Command {
+         output: PathBuf,
+     },
+     /// Build the installed content package (game.pak and loose partition files).
+-    #[cfg(target_os = "windows")]
+     PackageContent {
+         /// Extracted RMGE01 game folder (DATA root or its parent).
+         game: PathBuf,
+@@ -420,7 +419,6 @@ enum Command {
+     /// game.pak is a single contiguous sparse NTFS file where every game asset
+     /// resides at its exact partition-relative disc byte offset.  NebulaRuntime
+     /// memory-maps it so DVDLowRead is a single O(1) pointer-add at runtime.
+-    #[cfg(target_os = "windows")]
+     BuildPak {
+         /// Path to the extracted game directory (the folder containing DATA/).
+         input: PathBuf,
+@@ -433,7 +431,6 @@ enum Command {
+     /// The image contains only validated initialized DOL section bytes, their
+     /// guest destinations, and the zero-before-copy BSS range. It is installer
+     /// data, not a runtime PPC decoder, interpreter, JIT, or executable loader.
+-    #[cfg(target_os = "windows")]
+     BuildBootImage {
+         /// Exact supported RMGE01 extracted game directory.
+         input: PathBuf,
+@@ -1134,13 +1131,10 @@ fn main() -> Result<()> {
+             let data = generate::resolve_game_data_root(&game)?;
+             generate::generate_dsp(&data, &output)?;
+         }
+-        #[cfg(target_os = "windows")]
+         Command::PackageContent { game, output } => generate::package_content(&game, &output)?,
+-        #[cfg(target_os = "windows")]
+         Command::BuildPak { input, output } => {
+             build_pak::run(&input, &output)?;
+         }
+-        #[cfg(target_os = "windows")]
+         Command::BuildBootImage { input, output } => {
+             build_boot_image::run(&input, &output)?;
+         }
+@@ -2407,11 +2401,9 @@ mod tests {
+     }
+ }
+ 
+-#[cfg(target_os = "windows")]
+ #[path = "build_boot_image.rs"]
+ mod build_boot_image;
+ 
+-#[cfg(target_os = "windows")]
+ #[path = "build_pak.rs"]
+ mod build_pak;
+ 
+diff --git a/runtime/include/galaxy/diagnostic_stick_lease.h b/runtime/include/galaxy/diagnostic_stick_lease.h
+index 3fbd998..6805c35 100644
+--- a/runtime/include/galaxy/diagnostic_stick_lease.h
++++ b/runtime/include/galaxy/diagnostic_stick_lease.h
+@@ -8,7 +8,9 @@
+ #include <cmath>
+ #include <cstddef>
+ #include <cstdint>
++#include <cstdlib>
+ #include <optional>
++#include <string>
+ #include <string_view>
+ #include <system_error>
+ 
+@@ -65,12 +67,21 @@ parse_diagnostic_stick_command(std::string_view text) noexcept {
+                result.ptr == field.data() + field.size();
+     };
+     const auto axis = [](std::string_view field, float& value) {
++#if defined(GALAXY_PS5)
++        // The console's libc++ (LLVM 18) has no floating-point from_chars.
++        const std::string text(field);
++        char* end = nullptr;
++        value = std::strtof(text.c_str(), &end);
++        return !text.empty() && end == text.c_str() + text.size() &&
++               std::isfinite(value) && value >= -1.0f && value <= 1.0f;
++#else
+         const auto result = std::from_chars(
+             field.data(), field.data() + field.size(), value,
+             std::chars_format::general);
+         return result.ec == std::errc{} &&
+                result.ptr == field.data() + field.size() &&
+                std::isfinite(value) && value >= -1.0f && value <= 1.0f;
++#endif
+     };
+     if (!decimal(fields[0], command.sequence) || command.sequence == 0u ||
+         !decimal(fields[1], command.duration_ms) || command.duration_ms > 2000u ||
+diff --git a/runtime/include/galaxy/flat_guest_memory.h b/runtime/include/galaxy/flat_guest_memory.h
+index 05a28a3..f7cf73a 100644
+--- a/runtime/include/galaxy/flat_guest_memory.h
++++ b/runtime/include/galaxy/flat_guest_memory.h
+@@ -24,6 +24,9 @@ inline constexpr std::uint32_t kMem2Size = 0x04000000u;
+ // kGuestBase + guest_address loads. It throws if exact placement is unavailable.
+ void initialize();
+ [[nodiscard]] bool is_initialized() noexcept;
++// Where the 4-GiB guest view starts: kGuestBase on Windows, wherever the
++// console placed its arena there (GALAXY_PS5).
++[[nodiscard]] std::byte* guest_base() noexcept;
+ [[nodiscard]] std::byte* mem1_host_view() noexcept;
+ [[nodiscard]] std::byte* mem2_host_view() noexcept;
+ 
+diff --git a/runtime/include/galaxy/native_api.h b/runtime/include/galaxy/native_api.h
+index 6a10239..b50cfd0 100644
+--- a/runtime/include/galaxy/native_api.h
++++ b/runtime/include/galaxy/native_api.h
+@@ -5009,7 +5009,10 @@ GALAXY_ALWAYS_INLINE const std::byte* guest_flat_read_base(
+ // byte stores and plain mov stores), performs the access through the device
+ // path, writes the register and resumes. The write-gather pipe keeps its one
+ // inline test because every GX command passes through it.
+-#if defined(GALAXY_FASTMEM) && GALAXY_FASTMEM && defined(__clang__)
++// The console's code pages are execute-only: the fault handler cannot read the
++// faulting instruction to decode it, so the PS5 build takes the checked path
++// (a range test per access, device accesses called directly, no faults).
++#if defined(GALAXY_FASTMEM) && GALAXY_FASTMEM && defined(__clang__) && !defined(GALAXY_PS5)
+ #define GALAXY_FASTMEM_ACTIVE 1
+ #else
+ #define GALAXY_FASTMEM_ACTIVE 0
+diff --git a/runtime/src/flat_guest_memory.cpp b/runtime/src/flat_guest_memory.cpp
+index fdb251c..821076b 100644
+--- a/runtime/src/flat_guest_memory.cpp
++++ b/runtime/src/flat_guest_memory.cpp
+@@ -15,6 +15,13 @@
+ #define WIN32_LEAN_AND_MEAN
+ #endif
+ #include <windows.h>
++#if defined(GALAXY_PS5)
++// The console's guest arena: one direct-memory object per RAM bank, mapped at
++// each of its aliases inside a reserved 4 GiB range (the PS5 platform layer's
++// Dolphin-style MemArena). Everything else in the range stays reserved with no
++// access, so an MMIO access faults into the same handler as on Windows.
++#include <ps5platform/shm.h>
++#endif
+ 
+ #include <atomic>
+ #include <cstdio>
+@@ -40,6 +47,9 @@ using MapViewOfFile3Fn = PVOID(WINAPI*)(
+ struct SharedSection {
+     HANDLE mapping = nullptr;
+     std::byte* host_view = nullptr;
++#if defined(GALAXY_PS5)
++    ps5_shm object{};
++#endif
+ };
+ 
+ std::mutex g_init_mutex;
+@@ -132,6 +142,42 @@ std::byte* mapped_host_pointer(
+ 
+ }  // namespace
+ 
++#if defined(GALAXY_PS5)
++namespace {
++[[noreturn]] void fail_ps5(const char* operation, int result) {
++    std::ostringstream message;
++    message << operation << " failed (0x" << std::hex << static_cast<unsigned>(result) << ')';
++    throw std::runtime_error(message.str());
++}
++
++SharedSection create_ps5_section(std::uint32_t size) {
++    SharedSection section{};
++    if (const int result = ps5_shm_create(size, &section.object); result != 0) {
++        fail_ps5("ps5_shm_create for guest RAM", result);
++    }
++    void* view = nullptr;
++    if (const int result = ps5_shm_map(&section.object, 0, size, nullptr, PS5_SHM_READ | PS5_SHM_WRITE, 0, &view);
++        result != 0) {
++        fail_ps5("ps5_shm_map for the host guest-RAM alias", result);
++    }
++    section.host_view = static_cast<std::byte*>(view);
++    return section;
++}
++
++void map_ps5_alias(const SharedSection& section, std::uint32_t guest_address, std::uint32_t size) {
++    void* const target = g_guest_base + guest_address;
++    void* view = nullptr;
++    if (const int result = ps5_shm_map(&section.object, 0, size, target, PS5_SHM_READ | PS5_SHM_WRITE, PS5_SHM_FIXED, &view);
++        result != 0) {
++        fail_ps5("ps5_shm_map exact guest alias", result);
++    }
++    if (view != target) {
++        throw std::runtime_error("ps5_shm_map placed a guest alias away from its required address");
++    }
++}
++}  // namespace
++#endif
++
+ void initialize() {
+     const std::lock_guard<std::mutex> lock(g_init_mutex);
+     if (g_initialized.load(std::memory_order_acquire)) {
+@@ -142,6 +188,31 @@ void initialize() {
+             "flat guest memory initialization previously failed; restart the process");
+     }
+     g_initialization_failed = true;
++#if defined(GALAXY_PS5)
++    // Anywhere outside the GPU window: the generated code reads the base from
++    // GuestMemoryV1::flat_guest_base, not from kGuestBase. 0x10_0000_0000 is
++    // the platform layer's place for guest arenas.
++    void* arena = nullptr;
++    if (const int result = ps5_vrange_reserve(static_cast<std::size_t>(kGuestSpaceSize + kAllocationGranularity),
++                                              reinterpret_cast<void*>(0x1000000000ull), kAllocationGranularity,
++                                              &arena);
++        result != 0) {
++        fail_ps5("ps5_vrange_reserve 4-GiB guest range", result);
++    }
++    g_guest_base = static_cast<std::byte*>(arena);
++    g_mem1 = create_ps5_section(kMem1Size);
++    g_mem2 = create_ps5_section(kMem2Size);
++    map_ps5_alias(g_mem1, 0x00000000u, kMem1Size);
++    map_ps5_alias(g_mem1, 0x80000000u, kMem1Size);
++    map_ps5_alias(g_mem1, 0xC0000000u, kMem1Size);
++    map_ps5_alias(g_mem2, 0x10000000u, kMem2Size);
++    map_ps5_alias(g_mem2, 0x90000000u, kMem2Size);
++    map_ps5_alias(g_mem2, 0xD0000000u, kMem2Size);
++    std::fprintf(stderr, "[fastmem] guest arena at %p (MEM1 host %p, MEM2 host %p)\n", static_cast<void*>(g_guest_base),
++                 static_cast<void*>(g_mem1.host_view), static_cast<void*>(g_mem2.host_view));
++    g_initialized.store(true, std::memory_order_release);
++    return;
++#endif
+ 
+     HMODULE kernelbase = GetModuleHandleW(L"kernelbase.dll");
+     if (kernelbase == nullptr) {
+@@ -924,6 +995,14 @@ bool is_initialized() noexcept {
+     return g_initialized.load(std::memory_order_acquire);
+ }
+ 
++std::byte* guest_base() noexcept {
++#if defined(GALAXY_PS5)
++    return g_guest_base;
++#else
++    return reinterpret_cast<std::byte*>(kGuestBase);
++#endif
++}
++
+ std::byte* mem1_host_view() noexcept {
+     return is_initialized() ? g_mem1.host_view : nullptr;
+ }
+diff --git a/runtime/src/native_host.cpp b/runtime/src/native_host.cpp
+index f002418..a901b0b 100644
+--- a/runtime/src/native_host.cpp
++++ b/runtime/src/native_host.cpp
+@@ -10820,6 +10820,9 @@ private:
+             offset >= owner_.pak_size_) {
+             return;
+         }
++#if defined(GALAXY_PS5)
++        return;  // nothing mapped to prefetch
++#endif
+         const std::uint64_t length =
+             std::min<std::uint64_t>(bytes, owner_.pak_size_ - offset);
+         WIN32_MEMORY_RANGE_ENTRY range{};
+@@ -11289,10 +11292,8 @@ GuestAddressSpace::GuestAddressSpace(
+                     "flat guest RAM view does not match the guest memory owner");
+             }
+         }
+-        memory_.flat_guest_read_base = reinterpret_cast<const std::byte*>(
+-            flat_guest_memory::kGuestBase);
+-        memory_.flat_guest_base = reinterpret_cast<std::byte*>(
+-            flat_guest_memory::kGuestBase);
++        memory_.flat_guest_read_base = flat_guest_memory::guest_base();
++        memory_.flat_guest_base = flat_guest_memory::guest_base();
+     }
+     // Publish the live gather buffer only when no diagnostic observes
+     // individual gather-pipe writes; every such flag routes generated stores
+@@ -11374,7 +11375,7 @@ GuestAddressSpace::~GuestAddressSpace() {
+     if (read_env_flag("GALAXY_TRACE_BOOT_LOG")) {
+         std::cerr << "[boot] GuestAddressSpace dsp shutdown complete\n";
+     }
+-    if (pak_view_ != nullptr) {
++    if (pak_view_ != nullptr && pak_view_ != reinterpret_cast<const std::byte*>(std::uintptr_t{1})) {
+         UnmapViewOfFile(pak_view_);
+     }
+     if (pak_mapping_ != nullptr) {
+@@ -12457,6 +12458,27 @@ void GuestAddressSpace::pre_wire_cp_fifo(std::uint32_t base, std::uint32_t end)
+     }
+ }
+ 
++#if defined(GALAXY_PS5)
++// The console reads game.pak with positioned reads: a 4.3 GB file mapping is
++// not paged in on demand there, it takes the console's memory. pak_view_ is
++// then only a marker that the pak is open.
++namespace {
++const std::byte* const kPakReadThroughFile = reinterpret_cast<const std::byte*>(std::uintptr_t{1});
++
++void read_pak_bytes(HANDLE pak, std::uint64_t offset, std::byte* destination, std::uint32_t size) {
++    OVERLAPPED position{};
++    position.Offset = static_cast<DWORD>(offset);
++    position.OffsetHigh = static_cast<DWORD>(offset >> 32u);
++    DWORD read = 0;
++    if (!ReadFile(pak, destination, size, &read, &position) || read != size) {
++        std::ostringstream message;
++        message << "game.pak read failed at offset 0x" << std::hex << offset << " size 0x" << size;
++        throw std::runtime_error(message.str());
++    }
++}
++}  // namespace
++#endif
++
+ void GuestAddressSpace::open_game_pak(const std::filesystem::path& path) {
+     const HANDLE file = CreateFileW(
+         path.c_str(),
+@@ -12478,6 +12500,11 @@ void GuestAddressSpace::open_game_pak(const std::filesystem::path& path) {
+         throw std::runtime_error("failed to query game.pak size");
+     }
+     pak_size_ = static_cast<std::uint64_t>(size.QuadPart);
++#if defined(GALAXY_PS5)
++    pak_view_ = kPakReadThroughFile;
++    load_disc_mod_overrides_from_env();
++    return;
++#endif
+ 
+     const HANDLE mapping = CreateFileMappingW(
+         file,
+@@ -12607,8 +12634,16 @@ void GuestAddressSpace::load_disc_mod_overrides_from_env() {
+                         << line_number;
+                 throw std::runtime_error(message.str());
+             }
++#if defined(GALAXY_PS5)
++            char pak_game_id[6]{};
++            if (pak_size_ >= 6u) {
++                read_pak_bytes(pak_file_, 0u, reinterpret_cast<std::byte*>(pak_game_id), 6u);
++            }
++            if (pak_size_ < 6u || std::memcmp(pak_game_id, kDiscModGameId, 6u) != 0) {
++#else
+             if (pak_size_ < 6u ||
+                 std::memcmp(pak_view_, kDiscModGameId, 6u) != 0) {
++#endif
+                 std::ostringstream message;
+                 message << "disc mod manifest targets " << kDiscModGameId
+                         << " but game.pak header does not match in "
+@@ -12762,7 +12797,13 @@ std::byte GuestAddressSpace::disc_byte_at(std::uint64_t disc_offset) const {
+         return entry->bytes[static_cast<std::size_t>(
+             disc_offset - entry->disc_offset)];
+     }
++#if defined(GALAXY_PS5)
++    std::byte value{};
++    read_pak_bytes(pak_file_, disc_offset, &value, 1u);
++    return value;
++#else
+     return pak_view_[disc_offset];
++#endif
+ }
+ 
+ const GuestAddressSpace::DiscOverride* GuestAddressSpace::disc_override_at(
+@@ -12839,9 +12880,14 @@ void GuestAddressSpace::copy_disc_bytes_raw(
+             std::min<std::uint64_t>(
+                 remaining,
+                 next_override - cursor));
++#if defined(GALAXY_PS5)
++        (void)copy;
++        read_pak_bytes(pak_file_, cursor, const_cast<std::byte*>(pointer(guest_dest + written, chunk)), chunk);
++#else
+         copy(
+             guest_dest + written,
+             std::span<const std::byte>(pak_view_ + cursor, chunk));
++#endif
+         cursor += chunk;
+         written += chunk;
+         remaining -= chunk;
+@@ -21988,9 +22034,13 @@ std::optional<std::filesystem::path> extended_length_nand_root(
+     std::filesystem::path absolute =
+         std::filesystem::absolute(input, error).lexically_normal();
+     if (error || !absolute.is_absolute()) return std::nullopt;
++#if defined(GALAXY_PS5)
++    // The console's paths are POSIX ones, with no length prefix to add.
++    return absolute;
++#endif
+     absolute.make_preferred();
+ 
+-    const std::wstring native = absolute.native();
++    const std::wstring native = absolute.wstring();
+     constexpr std::wstring_view kExtendedPrefix = LR"(\\?\)";
+     constexpr std::wstring_view kDevicePrefix = LR"(\\.\)";
+     constexpr std::wstring_view kUncPrefix = LR"(\\)";
+@@ -22337,7 +22387,7 @@ std::string_view isfs_parent_path(std::string_view path) {
+ std::filesystem::path nand_metadata_stream_path(
+     const std::filesystem::path& host_path,
+     std::wstring_view stream_name = kNandMetadataStream) {
+-    std::wstring stream_path = host_path.native();
++    std::wstring stream_path = host_path.wstring();
+     stream_path.append(stream_name);
+     return std::filesystem::path(std::move(stream_path));
+ }
+@@ -25200,6 +25250,7 @@ std::uint32_t commit_fresh_nand_transaction(
+         : kIsfsErrAccess;
+ }
+ 
++
+ NativeNandRootProbe probe_native_nand_root() {
+     std::array<wchar_t, 32768> override_root{};
+     const DWORD override_len = GetEnvironmentVariableW(
+diff --git a/runtime/src/native_runtime.cpp b/runtime/src/native_runtime.cpp
+index 63c12a6..032c0a2 100644
+--- a/runtime/src/native_runtime.cpp
++++ b/runtime/src/native_runtime.cpp
+@@ -114,6 +114,10 @@ void prefetch_module_image_async(HMODULE module) noexcept {
+                  length == 2u && value[0] == '0');
+     }();
+     if (!enabled || module == nullptr) return;
++#if defined(GALAXY_PS5)
++    // The modules are part of the eboot, loaded whole with it.
++    return;
++#else
+     const auto* base = reinterpret_cast<const unsigned char*>(module);
+     const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+     if (dos->e_magic != IMAGE_DOS_SIGNATURE) return;
+@@ -129,6 +133,7 @@ void prefetch_module_image_async(HMODULE module) noexcept {
+         }).detach();
+     } catch (...) {
+     }
++#endif
+ }
+ 
+ class RuntimeFailure final : public std::runtime_error {
+@@ -765,6 +770,7 @@ bool native_thp_async_decode_enabled() {
+ //   - blocked samples by the innermost runtime frame (the wait site).
+ // Printed at shutdown as [sim-profile*] lines; runtime and system addresses resolve through dbghelp
+ // when NebulaRuntime.pdb sits beside the executable.
++#if !defined(GALAXY_PS5)
+ class SimulationProfiler {
+ public:
+     ~SimulationProfiler() {
+@@ -1286,6 +1292,16 @@ private:
+     bool symbols_attempted_ = false;
+     bool symbols_ready_ = false;
+ };
++#else
++// The console has no thread suspension or SEH unwinding to sample with: the
++// profiler is off (GALAXY_SIM_PROFILE and its siblings do nothing).
++class SimulationProfiler {
++public:
++    void start(const galaxy::FunctionRecordV1*, std::size_t, HMODULE) {}
++    void start_named(const wchar_t*, std::string) {}
++    void stop_and_print(std::ostream&) {}
++};
++#endif
+ 
+ SimulationProfiler g_sim_profiler;
+ // The loaded module's function records (guest address, native entry), for
+@@ -16243,8 +16259,7 @@ bool coop_scheduler_requested() {
+ }
+ 
+ const galaxy::coop::GuestRam& coop_ram() {
+-    static const galaxy::coop::GuestRam ram{reinterpret_cast<std::byte*>(
+-        galaxy::host::flat_guest_memory::kGuestBase)};
++    static const galaxy::coop::GuestRam ram{galaxy::host::flat_guest_memory::guest_base()};
+     return ram;
+ }
+ 

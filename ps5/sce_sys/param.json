@@ -1,0 +1,40 @@
+{
+  "ageLevel": {
+    "default": 0
+  },
+  "applicationCategoryType": 0,
+  "applicationDrmType": "free",
+  "attribute": 1644167168,
+  "attribute2": 0,
+  "attribute3": 524352,
+  "conceptId": "99315",
+  "contentBadgeType": 1,
+  "contentId": "UP9000-PPSA99315_00-MARIOGALAXY00000",
+  "contentVersion": "01.000.000",
+  "downloadDataSize": 256,
+  "gameIntent": {
+    "permittedIntents": [
+      {
+        "intentType": "launchActivity"
+      }
+    ]
+  },
+  "kernel": {
+    "flexibleMemorySize": 1073741824
+  },
+  "localizedParameters": {
+    "defaultLanguage": "en-US",
+    "en-US": {
+      "titleName": "Super Mario Galaxy"
+    }
+  },
+  "masterVersion": "01.00",
+  "pubtools": {
+    "creationDate": "2026-10-20 00:00:00",
+    "toolVersion": "2.00"
+  },
+  "requiredSystemSoftwareVersion": "0x0000000000000000",
+  "sdkVersion": "0x0000000000000000",
+  "titleId": "PPSA99315",
+  "versionFileUri": ""
+}

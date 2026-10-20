@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Super Mario Galaxy for the PlayStation 5 - build the title into dist/<TITLE_ID>/.
+#
+#   ps5/tools/vm.sh build [ninja arguments]
+#
+# Configures ps5/CMakeLists.txt with the payload SDK's toolchain (once) and
+# builds it. The game's modules are C++ that nebula-recomp generated from the
+# player's disc into gamedata/generated (ps5/tools/prepare-game.sh, on the Mac).
+#
+#   PS5_BUILD_DIR    the build tree (vm.sh puts it on the Linux VM's own disk)
+#   PS5_VULKAN_DIR   the PS5_Vulkan checkout (its RADV archive, link recipe, packaging)
+#
+# SPDX-License-Identifier: GPL-3.0-only
+set -euo pipefail
+
+ps5=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+root=$(dirname "$ps5")
+vulkan=$(cd -- "${PS5_VULKAN_DIR:-$root/../PS5_Vulkan}" && pwd)
+sdk=$(bash "$ps5/tools/setup-sdk.sh")
+generated="$root/gamedata/generated"
+[[ -f $generated/game/module.cpp ]] || { echo "no generated game code in $generated (run ps5/tools/prepare-game.sh)" >&2; exit 2; }
+export RADV_ARCHIVE=${RADV_ARCHIVE:-$vulkan/.deps/native/radv-release/lib/libvulkan_radeon.ps5.a}
+build=${PS5_BUILD_DIR:-$root/build/game}
+ninja=$(command -v ninja || echo "$HOME/.local/bin/ninja")
+export PS5_CLANG=${PS5_CLANG:-$(command -v clang || true)}
+
+if [[ ! -f $build/build.ninja ]]; then
+    mkdir -p "$build"
+    cmake -S "$ps5" -B "$build" -G Ninja -DCMAKE_MAKE_PROGRAM="$ninja" \
+        -DCMAKE_TOOLCHAIN_FILE="$sdk/toolchain/prospero.cmake" \
+        -DPS5_PORT_DIR="$root" -DPS5_VULKAN_DIR="$vulkan" -DPS5_GENERATED_DIR="$generated" \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_VERBOSE_MAKEFILE=OFF > "$build/configure.log" 2>&1 \
+        || { tail -60 "$build/configure.log" >&2; exit 1; }
+fi
+"$ninja" -C "$build" "${@:-SuperMarioGalaxy}"

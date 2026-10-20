@@ -1,0 +1,3 @@
+[submodule "vendor/nebula"]
+	path = vendor/nebula
+	url = https://github.com/keepvaibin/nebula.git

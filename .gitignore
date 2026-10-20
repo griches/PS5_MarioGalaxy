@@ -1,0 +1,8 @@
+# Game files and everything made from them: never committed
+/dump/
+/gamedata/
+/build/
+/dist/
+/.deps/
+/klog/
+.DS_Store
