@@ -385,6 +385,50 @@ index 512796e..be1a74b 100644
  }
  
  BOOL CALLBACK collect_monitor(HMONITOR monitor, HDC, LPRECT, LPARAM user) {
+diff --git a/runtime/src/gx/render_config.cpp b/runtime/src/gx/render_config.cpp
+index 83c38c3..0f16099 100644
+--- a/runtime/src/gx/render_config.cpp
++++ b/runtime/src/gx/render_config.cpp
+@@ -82,6 +82,21 @@ static unsigned parse_window_dimension(const char* v, unsigned def) {
+         : def;
+ }
+ 
++// Frame-rate limits above 60 exist only for the experimental interpolated frames
++// (GALAXY_EXPERIMENTAL_INTERPOLATION=1, see RendererD3D12::interpolation_mode):
++// without them the limit stays 1-60 as the settings offer.
++static float max_frame_rate_limit() {
++    static const float limit = [] {
++        char value[8]{};
++        std::size_t length = 0u;
++        return getenv_s(&length, value, sizeof(value), "GALAXY_EXPERIMENTAL_INTERPOLATION") == 0 &&
++                       length > 1u && value[0] != '0'
++                   ? 240.0f
++                   : kMaxFrameRate;
++    }();
++    return limit;
++}
++
+ static float parse_float(const char* v, float def) {
+     std::istringstream input(v);
+     input.imbue(std::locale::classic());
+@@ -89,7 +104,7 @@ static float parse_float(const char* v, float def) {
+     if (!(input >> value)) return def;
+     input >> std::ws;
+     return input.eof() && std::isfinite(value) &&
+-        (value == 0.0f || (value >= kMinFrameRate && value <= kMaxFrameRate))
++        (value == 0.0f || (value >= kMinFrameRate && value <= max_frame_rate_limit()))
+         ? value : def;
+ }
+ 
+@@ -308,7 +323,7 @@ static void clamp_unimplemented_features(RenderConfig& cfg) {
+     cfg.vsync_interval = std::clamp(cfg.vsync_interval, 0u, 2u);
+     cfg.swap_chain_frame_latency =
+         std::clamp(cfg.swap_chain_frame_latency, 1u, 2u);
+-    if (!std::isfinite(cfg.max_fps) || cfg.max_fps < kMinFrameRate || cfg.max_fps > kMaxFrameRate) {
++    if (!std::isfinite(cfg.max_fps) || cfg.max_fps < kMinFrameRate || cfg.max_fps > max_frame_rate_limit()) {
+         cfg.max_fps = RenderConfig{}.max_fps;
+     }
+     cfg.texture_lod_bias = std::min(cfg.texture_lod_bias, 8u);
 diff --git a/runtime/src/gx/renderer_d3d12.cpp b/runtime/src/gx/renderer_d3d12.cpp
 index aee5bd5..5a6533d 100644
 --- a/runtime/src/gx/renderer_d3d12.cpp

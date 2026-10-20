@@ -151,14 +151,19 @@ pipeline/texture caches, post-processing) for Vulkan, the console runs it as wri
 - **Launcher environment**: the console skips Nebula's launcher, so main.cpp applies what
   LaunchOptions.cs sets (not recording) and installer/runtime-env.json (generated
   launcher_env.inc). Without it movies ran at ~49 frames/s (the game's own THP decoder).
-- **120 Hz (built, not yet tried on the console)**: the title links its own RADV
+- **120 Hz (works, 2026-10-20 ~14:50; opt-in through env.txt)**: the title links its own RADV
   (ps5/tools/setup-radv.sh + ps5/patches/radv.patch, copied from the Eternal Darkness port:
   keeps 119.88 Hz when the TV runs it as VRR, idle vblank 20.9 ms = the TV's 48 Hz floor;
-  PS5_Vulkan's archive gives that up). dxgi_ps5.cpp picks the fastest mode when max_fps > 61
+  PS5_Vulkan's archive gives that up). dxgi_ps5.cpp picks the fastest mode when max_fps is 0 (follow the display: Nebula clamps
+  the setting to 1-60, 0 allowed)
   and reports 119 Hz to Nebula (compat::set_display_refresh_hz -> EnumDisplaySettings).
   Interpolated frames are Nebula's experimental replay: env.txt from ps5/test/120hz.env
   (`bash ps5/tools/console.sh env $(cat ps5/test/120hz.env)`). On a 60 Hz output nothing
-  changes. GPU at 6x is ~1.75 ms a frame, so there is room.
+  changes. Upstream clamps max_fps to 1-60, so interpolation could never start: render_config.cpp
+  allows up to 240 only with GALAXY_EXPERIMENTAL_INTERPOLATION=1. Measured in the Comet
+  Observatory: ~118 presents/s, 1 subframe a game frame (cpu ~1.7 ms, gpu ~3.5 ms each), game
+  frames mostly 60 but some 2 s windows at 52-58. GALAXY_TRACE_GX_STALLS=1 profiles every GX
+  command and drops the game to ~5 frames/s: never in a test env.
 - Small Nebula edits (in nebula.patch): uint64 lambda return types, RECT LONG casts,
   display_modes' EDID names off on PS5.
 - Internal resolution follows the window: 6x (3840x3168) by default.

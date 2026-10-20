@@ -9,7 +9,7 @@
 // on vkd3d's own queue, after the frame's Direct3D 12 work, and queues it.
 // The display's FIFO paces presentation; frame-latency objects are always
 // signalled. The mode is 59.94 Hz, or 119.88 Hz (a VRR TV's) when the
-// frame-rate limit is above 60; Nebula reads the refresh from the display
+// frame-rate limit follows the display (max_fps 0); Nebula reads the refresh from the display
 // settings (compat::set_display_refresh_hz).
 //
 // SPDX-License-Identifier: GPL-3.0-only
@@ -391,10 +391,11 @@ private:
             say("the display has no mode");
             return false;
         }
-        // The largest mode: its fastest refresh when the frame-rate limit asks for
-        // more than 60 (Nebula then draws frames in between, at 119.88 Hz where the
-        // display offers it), otherwise the one nearest 60 Hz.
-        const bool fast = galaxy::gx::get_render_config().max_fps > 61.0f;
+        // The largest mode: its fastest refresh when the frame-rate limit follows
+        // the display (max_fps 0; Nebula then draws frames in between, at 119.88 Hz
+        // where the display offers it), otherwise the one nearest 60 Hz.
+        const float max_fps = galaxy::gx::get_render_config().max_fps;
+        const bool fast = max_fps == 0.0f || max_fps > 61.0f;
         const VkDisplayModePropertiesKHR* best = &modes[0];
         auto score = [fast](const VkDisplayModePropertiesKHR& mode) {
             const auto& p = mode.parameters;
