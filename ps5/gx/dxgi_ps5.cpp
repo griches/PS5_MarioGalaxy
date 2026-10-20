@@ -8,8 +8,8 @@
 // current buffer onto the display's next image (scaled when the sizes differ)
 // on vkd3d's own queue, after the frame's Direct3D 12 work, and queues it.
 // The display's FIFO paces presentation; frame-latency objects are always
-// signalled. The mode is 59.94 Hz, or 119.88 Hz (a VRR TV's) when the
-// frame-rate limit follows the display (max_fps 0); Nebula reads the refresh from the display
+// signalled. The mode is 119.88 Hz where the TV runs it as VRR, else 59.94 Hz;
+// Nebula reads the refresh from the display
 // settings (compat::set_display_refresh_hz).
 //
 // SPDX-License-Identifier: GPL-3.0-only
@@ -17,8 +17,6 @@
 
 #include <dxgi1_6.h>
 #include <ps5_compat.h>
-
-#include "galaxy/gx/render_config.h"
 
 #include <algorithm>
 #include <array>
@@ -391,17 +389,15 @@ private:
             say("the display has no mode");
             return false;
         }
-        // The largest mode: its fastest refresh when the frame-rate limit follows
-        // the display (max_fps 0; Nebula then draws frames in between, at 119.88 Hz
-        // where the display offers it), otherwise the one nearest 60 Hz.
-        const float max_fps = galaxy::gx::get_render_config().max_fps;
-        const bool fast = max_fps == 0.0f || max_fps > 61.0f;
+        // The largest mode at its fastest refresh: 119.88 Hz where the display
+        // offers it (the WSI keeps it only on a TV that runs it as VRR, which then
+        // shows 60 frames/s as 60 Hz). The FRAME RATE setting can then go above 60
+        // (Nebula's frames in between) without a restart.
         const VkDisplayModePropertiesKHR* best = &modes[0];
-        auto score = [fast](const VkDisplayModePropertiesKHR& mode) {
+        auto score = [](const VkDisplayModePropertiesKHR& mode) {
             const auto& p = mode.parameters;
             const long long area = static_cast<long long>(p.visibleRegion.width) * p.visibleRegion.height;
-            const long long refresh = static_cast<long long>(p.refreshRate);
-            return area * 1000000 + (fast ? refresh : -std::abs(refresh - 60000));
+            return area * 1000000 + static_cast<long long>(p.refreshRate);
         };
         for (const auto& mode : modes) {
             say("display offers %ux%u at %u mHz", mode.parameters.visibleRegion.width,

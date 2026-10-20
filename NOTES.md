@@ -151,7 +151,11 @@ pipeline/texture caches, post-processing) for Vulkan, the console runs it as wri
 - **Launcher environment**: the console skips Nebula's launcher, so main.cpp applies what
   LaunchOptions.cs sets (not recording) and installer/runtime-env.json (generated
   launcher_env.inc). Without it movies ran at ~49 frames/s (the game's own THP decoder).
-- **120 Hz (works, 2026-10-20 ~14:50; opt-in through env.txt)**: the title links its own RADV
+- **120 Hz (works; in-game FRAME RATE setting, default 60)**: the swap chain always takes the
+  119.88 Hz VRR mode when offered and main.cpp sets GALAXY_EXPERIMENTAL_INTERPOLATION=1, so the
+  menu switches 60/120 live. Gary saw animated models (Lumas, butterflies) break in the
+  in-between frames: 60 is the default. Settings live in /app0/userdata/Nebula/config.ini.
+  Details: the title links its own RADV
   (ps5/tools/setup-radv.sh + ps5/patches/radv.patch, copied from the Eternal Darkness port:
   keeps 119.88 Hz when the TV runs it as VRR, idle vblank 20.9 ms = the TV's 48 Hz floor;
   PS5_Vulkan's archive gives that up). dxgi_ps5.cpp picks the fastest mode when max_fps is 0 (follow the display: Nebula clamps

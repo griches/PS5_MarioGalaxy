@@ -228,6 +228,10 @@ int main(int, char**) {
     set_default("GALAXY_FRAME_TIMELINE_EVENTS", "4000000");
     set_default("GALAXY_TRACE_GX_STALL_US", "20000");
     set_default("GALAXY_NATIVE_THP_VIDEO_DECODE", "1");
+    // Nebula's frames in between (120 frames/s on a VRR TV) offered by the FRAME
+    // RATE setting; they only run when it is set above 60 (the default is 60).
+    // Animated models (Lumas, butterflies) still break in the in-between frames.
+    set_default("GALAXY_EXPERIMENTAL_INTERPOLATION", "1");
     set_default("GALAXY_DUSK_DSP_HLE", "0");
     static const char* const kLauncherEnvironment[][2] = {
 #include "launcher_env.inc"
