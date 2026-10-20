@@ -16,6 +16,7 @@
 #define __cdecl
 #define __thiscall
 #define __vectorcall
+typedef long long __int64;
 
 typedef int errno_t;
 errno_t getenv_s(std::size_t* required, char* buffer, std::size_t size, const char* name) noexcept;

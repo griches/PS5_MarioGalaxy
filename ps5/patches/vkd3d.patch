@@ -1,0 +1,73 @@
+diff -ru a/vkd3d-2.1/include/vkd3d_d3dcommon.h b/vkd3d-2.1/include/vkd3d_d3dcommon.h
+--- a/include/vkd3d_d3dcommon.h	2026-05-21 11:19:24
++++ b/include/vkd3d_d3dcommon.h	2026-10-20 13:10:33
+@@ -59,7 +59,7 @@
+ typedef GUID *LPCLSID;
+ typedef CLSID *REFCLSID;
+ #endif
+-#if !defined(_WIN32)
++#if !defined(_WIN32) && !defined(VKD3D_HOST_WINDOWS_TYPES)
+ typedef void *HWND;
+ typedef void *HMODULE;
+ typedef struct LUID {
+diff -ru a/vkd3d-2.1/include/vkd3d_dxgi.h b/vkd3d-2.1/include/vkd3d_dxgi.h
+--- a/include/vkd3d_dxgi.h	2026-05-21 11:19:24
++++ b/include/vkd3d_dxgi.h	2026-10-20 13:10:33
+@@ -91,7 +91,7 @@
+ typedef GUID *LPCLSID;
+ typedef CLSID *REFCLSID;
+ #endif
+-#if !defined(_WIN32)
++#if !defined(_WIN32) && !defined(VKD3D_HOST_WINDOWS_TYPES)
+ typedef void *HWND;
+ typedef void *HMODULE;
+ typedef struct LUID {
+diff -ru a/vkd3d-2.1/include/vkd3d_windows.h b/vkd3d-2.1/include/vkd3d_windows.h
+--- a/include/vkd3d_windows.h	2026-08-24 11:08:15
++++ b/include/vkd3d_windows.h	2026-10-20 13:10:33
+@@ -190,7 +190,9 @@
+ # define CONTAINING_RECORD(address, type, field) \
+         ((type *)((char *)(address) - offsetof(type, field)))
+ 
+-# ifdef __x86_64__
++# if defined(VKD3D_SYSV_ABI)
++#  define __stdcall
++# elif defined(__x86_64__)
+ #  define __stdcall __attribute__((ms_abi))
+ # else
+ #  if (__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 2)) || defined(__APPLE__)
+diff -ru a/vkd3d-2.1/libs/vkd3d-utils/vkd3d_utils_main.c b/vkd3d-2.1/libs/vkd3d-utils/vkd3d_utils_main.c
+--- a/libs/vkd3d-utils/vkd3d_utils_main.c	2026-08-24 11:08:15
++++ b/libs/vkd3d-utils/vkd3d_utils_main.c	2026-10-20 13:10:33
+@@ -124,11 +124,14 @@
+     return vkd3d_create_device(&device_create_info, iid, device);
+ }
+ 
++/* The PlayStation 5 build creates its devices itself (ps5/gx/d3d12_ps5.cpp). */
++#ifndef VKD3D_UTILS_PS5
+ VKD3D_UTILS_API HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
+         D3D_FEATURE_LEVEL minimum_feature_level, REFIID iid, void **device)
+ {
+     return D3D12CreateDeviceVKD3D(adapter, minimum_feature_level, iid, device, VKD3D_API_VERSION_1_0);
+ }
++#endif
+ 
+ HRESULT WINAPI D3D12CreateRootSignatureDeserializer(const void *data, SIZE_T data_size,
+         REFIID iid, void **deserializer)
+@@ -562,6 +565,8 @@
+             secondary_data, secondary_data_size, shader_blob, messages_blob, 47);
+ }
+ 
++/* The PlayStation 5 build wraps D3DCompile (ps5/gx/d3d12_ps5.cpp). */
++#ifndef VKD3D_UTILS_PS5
+ HRESULT WINAPI D3DCompile(const void *data, SIZE_T data_size, const char *filename,
+         const D3D_SHADER_MACRO *macros, ID3DInclude *include, const char *entrypoint,
+         const char *profile, UINT flags, UINT effect_flags, ID3DBlob **shader, ID3DBlob **error_messages)
+@@ -574,6 +579,7 @@
+     return D3DCompile2(data, data_size, filename, macros, include, entrypoint, profile, flags,
+             effect_flags, 0, NULL, 0, shader, error_messages);
+ }
++#endif
+ 
+ HRESULT WINAPI D3DPreprocessVKD3D(const void *data, SIZE_T size, const char *filename,
+         const D3D_SHADER_MACRO *macros, ID3DInclude *include,

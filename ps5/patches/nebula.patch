@@ -362,6 +362,70 @@ index fdb251c..821076b 100644
  std::byte* mem1_host_view() noexcept {
      return is_initialized() ? g_mem1.host_view : nullptr;
  }
+diff --git a/runtime/src/gx/display_modes.cpp b/runtime/src/gx/display_modes.cpp
+index 512796e..be1a74b 100644
+--- a/runtime/src/gx/display_modes.cpp
++++ b/runtime/src/gx/display_modes.cpp
+@@ -11,6 +11,10 @@ namespace {
+ // GDI device name -> the monitor's own (EDID) name, for active outputs.
+ std::map<std::wstring, std::wstring> monitor_names() {
+     std::map<std::wstring, std::wstring> names;
++#if defined(GALAXY_PS5)
++    // The console's one output has no EDID name to show.
++    return names;
++#else
+     UINT32 path_count = 0u;
+     UINT32 mode_count = 0u;
+     if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &path_count, &mode_count) !=
+@@ -42,6 +46,7 @@ std::map<std::wstring, std::wstring> monitor_names() {
+         }
+     }
+     return names;
++#endif
+ }
+ 
+ BOOL CALLBACK collect_monitor(HMONITOR monitor, HDC, LPRECT, LPARAM user) {
+diff --git a/runtime/src/gx/renderer_d3d12.cpp b/runtime/src/gx/renderer_d3d12.cpp
+index aee5bd5..5a6533d 100644
+--- a/runtime/src/gx/renderer_d3d12.cpp
++++ b/runtime/src/gx/renderer_d3d12.cpp
+@@ -1680,7 +1680,7 @@ unsigned swap_chain_frame_latency() {
+ // discrete adapter this is context only. Queried once; the value cannot change
+ // during a session.
+ std::uint64_t host_ram_mb() {
+-    static const std::uint64_t megabytes = [] {
++    static const std::uint64_t megabytes = []() -> std::uint64_t {
+         MEMORYSTATUSEX status{};
+         status.dwLength = sizeof(status);
+         if (GlobalMemoryStatusEx(&status) == FALSE) {
+@@ -1761,7 +1761,7 @@ galaxy::host::HostPointerCursorPollMode mouse_ir_cursor_poll_mode() {
+ }
+ 
+ std::uint64_t mouse_ir_message_recent_ms() {
+-    static const std::uint64_t value = [] {
++    static const std::uint64_t value = []() -> std::uint64_t {
+         char text[16]{};
+         std::size_t length = 0;
+         if (getenv_s(
+@@ -1777,7 +1777,7 @@ std::uint64_t mouse_ir_message_recent_ms() {
+ }
+ 
+ std::uint64_t mouse_ir_stale_center_reject_ms() {
+-    static const std::uint64_t value = [] {
++    static const std::uint64_t value = []() -> std::uint64_t {
+         char text[16]{};
+         std::size_t length = 0;
+         if (getenv_s(
+@@ -5117,7 +5117,8 @@ RECT windowed_rect_on_monitor(const MonitorInfo& monitor, unsigned width,
+     const long outer_h = client_h + frame_h;
+     const long left = monitor.work_area.left + std::max(0L, (work_w - outer_w) / 2);
+     const long top = monitor.work_area.top + std::max(0L, (work_h - outer_h) / 2);
+-    return RECT{left, top, left + outer_w, top + outer_h};
++    return RECT{static_cast<LONG>(left), static_cast<LONG>(top), static_cast<LONG>(left + outer_w),
++                static_cast<LONG>(top + outer_h)};
+ }
+ }  // namespace
+ 
 diff --git a/runtime/src/native_host.cpp b/runtime/src/native_host.cpp
 index f002418..a901b0b 100644
 --- a/runtime/src/native_host.cpp

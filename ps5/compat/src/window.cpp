@@ -1,8 +1,8 @@
-// Super Mario Galaxy for the PlayStation 5 - windows, the cursor, the keyboard,
-// monitors and the console window, as a machine with one 3840x2160 display and
-// no desktop: no window exists, none has focus, no key is down. Nebula's
-// runtime then takes its paths for a missing window, and input comes from the
-// pad through XInput (xinput.cpp).
+// Super Mario Galaxy for the PlayStation 5 - the cursor, the keyboard, monitors
+// and the console window, as a machine with one 3840x2160 display and no
+// desktop: windows have no frame, no key is down (windows themselves and their
+// messages are window_queue.cpp). Input comes from the pad through XInput
+// (xinput.cpp).
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include "compat_internal.h"
@@ -31,49 +31,21 @@ int GetSystemMetrics(int index) noexcept {
     }
 }
 
-BOOL PeekMessageW(LPMSG, HWND, UINT, UINT, UINT) noexcept { return FALSE; }
-BOOL GetMessageW(LPMSG, HWND, UINT, UINT) noexcept { return FALSE; }
-BOOL TranslateMessage(const MSG*) noexcept { return FALSE; }
-LRESULT DispatchMessageW(const MSG*) noexcept { return 0; }
-BOOL PostMessageW(HWND, UINT, WPARAM, LPARAM) noexcept { return FALSE; }
-LRESULT SendMessageW(HWND, UINT, WPARAM, LPARAM) noexcept { return 0; }
-BOOL PostThreadMessageW(DWORD, UINT, WPARAM, LPARAM) noexcept { return FALSE; }
-void PostQuitMessage(int) noexcept {  }
-LRESULT DefWindowProcW(HWND, UINT, WPARAM, LPARAM) noexcept { return 0; }
-DWORD MsgWaitForMultipleObjects(DWORD count, const HANDLE* handles, BOOL wait_all, DWORD milliseconds, DWORD) noexcept { if (count == 0) { Sleep(milliseconds == INFINITE ? 1 : milliseconds); return WAIT_TIMEOUT; } return WaitForMultipleObjects(count, handles, wait_all, milliseconds); }
-DWORD MsgWaitForMultipleObjectsEx(DWORD count, const HANDLE* handles, DWORD milliseconds, DWORD wake_mask, DWORD) noexcept { return MsgWaitForMultipleObjects(count, handles, FALSE, milliseconds, wake_mask); }
-ATOM RegisterClassExW(const WNDCLASSEXW*) noexcept { return 1; }
-BOOL UnregisterClassW(LPCWSTR, HINSTANCE) noexcept { return TRUE; }
-HWND CreateWindowExW(DWORD, LPCWSTR, LPCWSTR, DWORD, int, int, int, int, HWND, HMENU, HINSTANCE, LPVOID) noexcept { return nullptr; }
-BOOL DestroyWindow(HWND) noexcept { return FALSE; }
-BOOL ShowWindow(HWND, int) noexcept { return FALSE; }
 BOOL UpdateWindow(HWND) noexcept { return FALSE; }
-BOOL IsWindow(HWND) noexcept { return FALSE; }
-BOOL IsWindowVisible(HWND) noexcept { return FALSE; }
 BOOL IsIconic(HWND) noexcept { return FALSE; }
 BOOL IsZoomed(HWND) noexcept { return FALSE; }
-HWND GetForegroundWindow() noexcept { return nullptr; }
 BOOL SetForegroundWindow(HWND) noexcept { return FALSE; }
-HWND GetActiveWindow() noexcept { return nullptr; }
 HWND SetActiveWindow(HWND) noexcept { return nullptr; }
-HWND GetFocus() noexcept { return nullptr; }
 HWND SetFocus(HWND) noexcept { return nullptr; }
 HWND GetDesktopWindow() noexcept { return nullptr; }
 HWND GetConsoleWindow() noexcept { return nullptr; }
 HWND GetAncestor(HWND, UINT) noexcept { return nullptr; }
 HWND GetParent(HWND) noexcept { return nullptr; }
-DWORD GetWindowThreadProcessId(HWND, LPDWORD process_id) noexcept { if (process_id != nullptr) *process_id = 0; return 0; }
-BOOL GetClientRect(HWND, LPRECT) noexcept { return FALSE; }
-BOOL GetWindowRect(HWND, LPRECT) noexcept { return FALSE; }
-BOOL ClientToScreen(HWND, LPPOINT) noexcept { return FALSE; }
-BOOL ScreenToClient(HWND, LPPOINT) noexcept { return FALSE; }
 BOOL SetWindowPos(HWND, HWND, int, int, int, int, UINT) noexcept { return FALSE; }
 BOOL MoveWindow(HWND, int, int, int, int, BOOL) noexcept { return FALSE; }
-BOOL AdjustWindowRect(LPRECT, DWORD, BOOL) noexcept { return FALSE; }
-BOOL AdjustWindowRectEx(LPRECT, DWORD, BOOL, DWORD) noexcept { return FALSE; }
-BOOL AdjustWindowRectExForDpi(LPRECT, DWORD, BOOL, DWORD, UINT) noexcept { return FALSE; }
-LONG_PTR SetWindowLongPtrW(HWND, int, LONG_PTR) noexcept { return 0; }
-LONG_PTR GetWindowLongPtrW(HWND, int) noexcept { return 0; }
+BOOL AdjustWindowRect(LPRECT rect, DWORD, BOOL) noexcept { return rect != nullptr; }
+BOOL AdjustWindowRectEx(LPRECT rect, DWORD, BOOL, DWORD) noexcept { return rect != nullptr; }
+BOOL AdjustWindowRectExForDpi(LPRECT rect, DWORD, BOOL, DWORD, UINT) noexcept { return rect != nullptr; }
 LONG SetWindowLongW(HWND, int, LONG) noexcept { return 0; }
 LONG GetWindowLongW(HWND, int) noexcept { return 0; }
 BOOL SetWindowTextW(HWND, LPCWSTR) noexcept { return FALSE; }
@@ -87,9 +59,6 @@ BOOL InvalidateRect(HWND, const RECT*, BOOL) noexcept { return FALSE; }
 BOOL ValidateRect(HWND, const RECT*) noexcept { return FALSE; }
 BOOL FlashWindow(HWND, BOOL) noexcept { return FALSE; }
 BOOL BringWindowToTop(HWND) noexcept { return FALSE; }
-BOOL SetPropW(HWND, LPCWSTR, HANDLE) noexcept { return FALSE; }
-HANDLE GetPropW(HWND, LPCWSTR) noexcept { return nullptr; }
-HANDLE RemovePropW(HWND, LPCWSTR) noexcept { return nullptr; }
 HWND FindWindowW(LPCWSTR, LPCWSTR) noexcept { return nullptr; }
 HWND WindowFromPoint(POINT) noexcept { return nullptr; }
 BOOL SetConsoleTitleW(LPCWSTR) noexcept { return TRUE; }
@@ -185,3 +154,21 @@ HPOWERNOTIFY RegisterPowerSettingNotification(HANDLE, const GUID*, DWORD) noexce
 BOOL UnregisterPowerSettingNotification(HPOWERNOTIFY) noexcept { return TRUE; }
 HPOWERNOTIFY RegisterSuspendResumeNotification(HANDLE, DWORD) noexcept { return reinterpret_cast<HPOWERNOTIFY>(1); }
 BOOL UnregisterSuspendResumeNotification(HPOWERNOTIFY) noexcept { return TRUE; }
+LONG GetMessageTime() noexcept { return static_cast<LONG>(GetTickCount()); }
+BOOL ShowWindowAsync(HWND window, int command) noexcept { return ShowWindow(window, command); }
+LRESULT SendMessageTimeoutW(HWND window, UINT message, WPARAM wparam, LPARAM lparam, UINT, UINT,
+                            PDWORD_PTR result) noexcept {
+    const LRESULT answer = SendMessageW(window, message, wparam, lparam);
+    if (result != nullptr) *result = static_cast<DWORD_PTR>(answer);
+    return 1;
+}
+HCURSOR LoadCursorA(HINSTANCE, LPCWSTR) noexcept { return nullptr; }
+BOOL GetCurrentInputMessageSource(INPUT_MESSAGE_SOURCE* source) noexcept {
+    if (source == nullptr) return FALSE;
+    *source = {IMDT_UNAVAILABLE, IMO_HARDWARE};
+    return TRUE;
+}
+// The console's own power management decides when the screen sleeps.
+HANDLE PowerCreateRequest(PREASON_CONTEXT) noexcept { return reinterpret_cast<HANDLE>(2); }
+BOOL PowerSetRequest(HANDLE, POWER_REQUEST_TYPE) noexcept { return TRUE; }
+BOOL PowerClearRequest(HANDLE, POWER_REQUEST_TYPE) noexcept { return TRUE; }

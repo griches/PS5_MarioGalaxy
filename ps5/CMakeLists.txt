@@ -161,11 +161,71 @@ add_library(compat STATIC
     ${ps5}/compat/src/exceptions.cpp
     ${ps5}/compat/src/system.cpp
     ${ps5}/compat/src/window.cpp
+    ${ps5}/compat/src/window_queue.cpp
     ${ps5}/compat/src/bcrypt.cpp
     ${ps5}/compat/src/xinput.cpp
     ${ps5}/compat/src/xaudio2.cpp)
 target_include_directories(compat PRIVATE ${windows_includes} ${ps5}/compat/src)
 target_compile_options(compat PRIVATE ${windows_flags} -g1)
+
+# ---- vkd3d: Wine's Direct3D 12 on Vulkan (ps5/tools/setup-vkd3d.sh) ---------------------
+# Nebula's renderer is Direct3D 12; vkd3d runs it on the console's RADV. Its
+# parser sources and version header come from the VM's own build of the same
+# tree (VKD3D_HOST_DIR); the console's configuration is ps5/vkd3d/config.h.
+foreach(required VKD3D_HOST_DIR PS5_VULKAN_HEADERS PS5_SPIRV_HEADERS)
+    if(NOT ${required})
+        message(FATAL_ERROR "${required} is not set (use ps5/tools/build.sh)")
+    endif()
+endforeach()
+set(vkd3d ${PS5_PORT_DIR}/.deps/vkd3d)
+file(GLOB vkd3d_common_sources ${vkd3d}/libs/vkd3d-common/*.c)
+file(GLOB vkd3d_shader_sources ${vkd3d}/libs/vkd3d-shader/*.c)
+file(GLOB vkd3d_device_sources ${vkd3d}/libs/vkd3d/*.c)
+file(GLOB vkd3d_utils_sources ${vkd3d}/libs/vkd3d-utils/*.c)
+list(APPEND vkd3d_shader_sources
+    ${VKD3D_HOST_DIR}/libs/vkd3d-shader/hlsl.tab.c ${VKD3D_HOST_DIR}/libs/vkd3d-shader/hlsl.yy.c
+    ${VKD3D_HOST_DIR}/libs/vkd3d-shader/preproc.tab.c ${VKD3D_HOST_DIR}/libs/vkd3d-shader/preproc.yy.c)
+add_library(vkd3d STATIC ${vkd3d_common_sources} ${vkd3d_shader_sources} ${vkd3d_device_sources} ${vkd3d_utils_sources})
+target_include_directories(vkd3d PRIVATE ${ps5}/vkd3d ${vkd3d}/include ${vkd3d}/include/private
+    ${VKD3D_HOST_DIR}/include/private ${vkd3d}/libs/vkd3d-shader ${VKD3D_HOST_DIR}/libs/vkd3d-shader
+    ${PS5_VULKAN_HEADERS} ${PS5_SPIRV_HEADERS})
+# System V calls for the COM methods (as the compatibility layer makes them), and
+# no D3D12CreateDevice/D3DCompile of vkd3d-utils' own (ps5/gx/d3d12_ps5.cpp has them)
+target_compile_definitions(vkd3d PRIVATE VKD3D_SYSV_ABI VKD3D_UTILS_PS5 _GNU_SOURCE)
+target_compile_options(vkd3d PRIVATE -std=gnu11 -w -g1)
+set_source_files_properties(${vkd3d_shader_sources} PROPERTIES
+    COMPILE_DEFINITIONS "LIBVKD3D_SHADER_SOURCE;VKD3D_DEBUG_ENV=VKD3D_SHADER_DEBUG")
+set_source_files_properties(${vkd3d_device_sources} PROPERTIES COMPILE_DEFINITIONS LIBVKD3D_SOURCE)
+set_source_files_properties(${vkd3d_utils_sources} PROPERTIES COMPILE_DEFINITIONS LIBVKD3D_UTILS_SOURCE)
+
+# ---- Nebula's shaders ------------------------------------------------------------------
+# The uber shaders' HLSL is compiled at run time (vkd3d-shader): embedded as text,
+# as Nebula's own CMake does. The presentation passes are compiled at build time
+# to bytecode headers by the VM's vkd3d-compiler (Nebula uses fxc).
+set(uber_embed_cpp ${CMAKE_BINARY_DIR}/generated/uber_shader_embed.cpp)
+set(uber_embed_body "")
+foreach(stage vs ps)
+    set(uber_hlsl ${runtime}/src/gx/uber_${stage}.hlsl)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${uber_hlsl})
+    file(READ ${uber_hlsl} uber_hex HEX)
+    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," uber_hex "${uber_hex}")
+    string(APPEND uber_embed_body "extern const char galaxy_uber_${stage}_hlsl[] = {${uber_hex}0x00};\n")
+endforeach()
+file(CONFIGURE OUTPUT ${uber_embed_cpp} CONTENT "namespace galaxy::gx {\n${uber_embed_body}}\n" @ONLY)
+set(post_shader_dir ${CMAKE_BINARY_DIR}/generated/post_shaders)
+set(post_shader_names post_fullscreen_vs post_resample_ps post_fxaa_ps post_fsr_easu_ps post_fsr_rcas_ps
+    post_smaa_edges_vs post_smaa_blend_vs post_smaa_blend_ps)
+foreach(preset low medium high ultra)
+    list(APPEND post_shader_names post_smaa_edges_ps_${preset} post_smaa_weights_vs_${preset}
+        post_smaa_weights_ps_${preset})
+endforeach()
+list(TRANSFORM post_shader_names PREPEND ${post_shader_dir}/ OUTPUT_VARIABLE post_shader_headers)
+list(TRANSFORM post_shader_headers APPEND .h)
+add_custom_command(OUTPUT ${post_shader_headers}
+    COMMAND bash ${ps5}/tools/post-shaders.sh ${nebula} ${VKD3D_HOST_DIR}/vkd3d-compiler ${post_shader_dir}
+    DEPENDS ${ps5}/tools/post-shaders.sh ${runtime}/src/gx/post_process.hlsl ${nebula}/third_party/smaa/SMAA.hlsl
+        ${nebula}/third_party/fidelityfx-fsr1/ffx_a.h ${nebula}/third_party/fidelityfx-fsr1/ffx_fsr1.h
+    VERBATIM)
 
 # ---- Nebula's runtime ---------------------------------------------------------------
 set(runtime_sources
@@ -178,14 +238,18 @@ set(runtime_sources
     checkpoint_gate.cpp host_pointer_events.cpp frame_telemetry.cpp
     ppc_float.cpp dsp_alu.cpp native_dsp.cpp
     gx/fifo_parser.cpp gx/gx_state.cpp gx/vertex_loader.cpp gx/frame_completion.cpp
-    gx/render_config.cpp)
+    gx/render_config.cpp gx/gx_shim.cpp gx/gx_backend.cpp gx/renderer_d3d12.cpp gx/window_owner.cpp
+    gx/texture_cache.cpp gx/placed_texture_allocator.cpp gx/shader_keys.cpp gx/efb_copy.cpp
+    gx/line_point_raster.cpp gx/pipeline_cache.cpp gx/shader_gen.cpp gx/uber_shaders.cpp
+    gx/post_process.cpp gx/temporal_upscaler.cpp gx/transform_history.cpp gx/display_modes.cpp
+    gx/game_asset_extract.cpp)
 list(TRANSFORM runtime_sources PREPEND "${runtime}/src/")
 add_library(nebula_runtime STATIC ${runtime_sources}
     ${generated}/dsp/rmge01_dsp.cpp
-    ${ps5}/gx/gx_null.cpp)
-# ps5/gx/include first: its renderer header replaces the Direct3D one
-target_include_directories(nebula_runtime BEFORE PRIVATE ${ps5}/gx/include)
-target_include_directories(nebula_runtime PRIVATE ${windows_includes} ${runtime}/softfloat)
+    ${uber_embed_cpp} ${post_shader_headers}
+    ${ps5}/gx/d3d12_ps5.cpp ${ps5}/gx/dxgi_ps5.cpp)
+target_include_directories(nebula_runtime PRIVATE ${windows_includes} ${runtime}/softfloat
+    ${vkd3d}/include ${PS5_VULKAN_HEADERS} ${post_shader_dir} ${nebula}/third_party/smaa)
 target_compile_options(nebula_runtime PRIVATE ${windows_flags} -g1 -fwrapv -fno-strict-aliasing)
 target_link_libraries(nebula_runtime PUBLIC softfloat)
 
@@ -221,7 +285,7 @@ set_target_properties(ps5_platform PROPERTIES ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_B
 add_executable(SuperMarioGalaxy ${ps5}/src/main.cpp ${ps5}/src/modules.cpp)
 target_include_directories(SuperMarioGalaxy PRIVATE ${windows_includes})
 target_compile_options(SuperMarioGalaxy PRIVATE ${windows_flags} -g1)
-target_link_libraries(SuperMarioGalaxy PRIVATE nebula_runtime compat game_module home_module softfloat)
+target_link_libraries(SuperMarioGalaxy PRIVATE nebula_runtime compat game_module home_module softfloat vkd3d)
 # The platform archive is linked whole (its start-up constructor has no caller),
 # and the link is PS5_Vulkan's recipe, with RADV (tools/link-title.sh)
 set(CMAKE_CXX_LINK_EXECUTABLE

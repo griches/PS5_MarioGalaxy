@@ -5,15 +5,13 @@ State as of 2026-10-20 ~13:00.
 
 ## Where it stands
 
-- **Boots and runs at 60 frames/s on the PS5 with no picture.** Commit `5ce9765` (local,
-  no remote). Title **PPSA99315** "Super Mario Galaxy", registered by ShadowMountPlus on the
-  console at 192.168.0.190, deployed with the game data in place.
-- Proven in klog/stderr: all game code runs, 8 guest threads on fibers, VI retraces at
-  60 Hz, `[gx-null] presents/s=60.0` with ~61 XFB copies and PE events a second, NAND
-  saves initialise (SYSCONF, setting.txt, play_rec, game data folder), XAudio2 submits audio
-  to the console's output, memory flat (~370 MB heap, 11 GB direct free).
-- **Next job: the Vulkan renderer** (plan below). The first goal is a picture of the title
-  screen.
+- **2026-10-20 ~13:30: the title screen renders on the PS5 at 3840x2160** with Nebula's own
+  Direct3D 12 renderer running unchanged on **vkd3d 2.1** (Wine's Direct3D 12 on Vulkan) over
+  the RADV linked into the eboot. Gary was alerted (sound + push). Title PPSA99315
+  "Super Mario Galaxy", console 192.168.0.190.
+- Before that (commit `5ce9765`): boots at 60 frames/s with no picture (null renderer).
+- Not yet checked: frame rate with the renderer, input past the title screen, in-game scenes,
+  shader-compile hitches (the first frames hitched ~1.3 s while pipelines compiled).
 
 ## Gary's working rules for this port
 
@@ -112,47 +110,40 @@ bash ps5/tools/console.sh game-files  # content/ and the boot image (only after 
   mapping; DualSense gyro/touchpad pointer is a later job (pad samples carry motion data in
   `reserved[]` of platform.c's struct).
 
-## The Vulkan renderer: plan
+## The renderer: Nebula's Direct3D 12 on vkd3d
 
-Nebula's GX path: `gx_backend.cpp` (12.7k lines: threading, FIFO parse, draw batching,
-EFB copies, PE completion) drives `RendererD3D12` (`renderer_d3d12.cpp`, 10.8k) plus
-`pipeline_cache.cpp` (3.3k, HLSL from `shader_gen.cpp`, FXC on worker threads),
-`texture_cache.cpp` (2.7k), `post_process.cpp` (1k; SMAA/FXAA/FSR1), `efb_copy.cpp`,
-`placed_texture_allocator.cpp`, `temporal_upscaler.cpp` (FSR3, drop), `display_modes.cpp`,
-`window_owner.cpp`. Front-end files with no D3D12 (keep as they are): `fifo_parser`,
-`gx_state`, `vertex_loader`, `shader_keys`, `shader_gen`, `frame_completion`,
-`render_config`, `game_asset_extract`.
+Rather than rewriting Nebula's renderer (gx_backend 12.7k lines, renderer_d3d12 10.8k,
+pipeline/texture caches, post-processing) for Vulkan, the console runs it as written:
 
-Approach: keep `gx_backend.cpp` and write a Vulkan renderer with the interface it uses
-(the ~80 `renderer_.` calls: begin_frame/end_frame/completed_fence_value, bind_efb,
-clear_efb, draw(DrawCall), copy_efb_to_xfb, copy_efb_to_texture, present, peek_efb,
-vertex/index/constant/matrix rings, srv ring, sampler tables, pointer-depth and async-peek
-captures; the replay/interpolation/temporal/motion calls can be stubs). Then port
-TextureCache, PipelineCache and PostProcessor to Vulkan types. gx_backend.cpp's own D3D12
-uses (47 lines) go behind `#if defined(GALAXY_PS5)`.
+- `ps5/tools/setup-vkd3d.sh` (build.sh runs it) fetches vkd3d 2.1 into `.deps/vkd3d` with
+  `ps5/patches/vkd3d.patch` and builds it once for the VM (`~/ps5/build/vkd3d-host`) for the
+  bison/flex sources, the version header and a host `vkd3d-compiler`. CMake builds vkd3d
+  (common, shader, device, utils) as a static library with `ps5/vkd3d/config.h`.
+- The patch: `VKD3D_SYSV_ABI` (COM methods use System V, as the compat layer does, not
+  ms_abi), `VKD3D_HOST_WINDOWS_TYPES` (vkd3d's headers leave HWND/LUID/RECT to windows.h),
+  `VKD3D_UTILS_PS5` (no D3D12CreateDevice/D3DCompile of vkd3d-utils').
+- Headers: `ps5/compat/include/vkd3d_com.h` makes vkd3d's widl headers sit on the compat
+  windows.h (`_INC_WINDOWS`, `WIDL_EXPLICIT_AGGREGATE_RETURNS`, interface macros);
+  objbase.h's IUnknown has the COM layout (no virtual destructor!) and `__uuidof` returns
+  the real IIDs from `__CRT_UUID_DECL`. d3d12.h, d3dcompiler.h, d3d12shader.h,
+  d3d12sdklayers.h, d3dcommon.h wrap vkd3d's; dxgi1_6.h is my own (only what Nebula calls).
+- `ps5/gx/d3d12_ps5.cpp`: one vkd3d instance (VK_KHR_display) from
+  `vk_icdGetInstanceProcAddr`, devices with VK_KHR_swapchain, fences signal compat events.
+  **D3DCompile** wraps vkd3d-utils' D3DCompile2: `*_5_1` sources with no register space
+  compile as `*_5_0` (vkd3d's 5.1 output lacks resource arrays such as `Texture2D tex[8]`).
+- `ps5/gx/dxgi_ps5.cpp`: factory/adapter/output and a swap chain whose buffers are VkImages
+  given to vkd3d (`vkd3d_create_image_resource`, PRESENT = copy-source layout); Present
+  waits for vkd3d's submission (`vkd3d_queue_signal_on_cpu`), blits the buffer to the
+  VK_KHR_display swapchain on vkd3d's queue and presents (FIFO). Display: 3840x2160 59.94 Hz.
+- `ps5/compat/src/window_queue.cpp`: real (invisible) windows and per-thread message queues
+  (posted and sent messages, WM_QUIT) for Nebula's window thread; first ShowWindow sends
+  activate/focus. AdjustWindowRect* succeed with no frame.
+- Shaders: uber HLSL embedded as text (compiled at start, ~3 s); specialised pipelines
+  compiled at run time by vkd3d-shader on Nebula's workers; presentation passes compiled at
+  build time by `ps5/tools/post-shaders.sh` with the host vkd3d-compiler (Nebula uses fxc).
+- Small Nebula edits (in nebula.patch): uint64 lambda return types, RECT LONG casts,
+  display_modes' EDID names off on PS5.
+- Internal resolution follows the window: 6x (3840x3168) by default.
+- Screenshots: `PS5_DevLoop/tools/ps5loop.py load` (once a boot), `open --beside`, `shot FILE`,
+  `close`. The title has no `grab` hook yet.
 
-- Root signature → pipeline layout: b0 (VS constants, root CBV), b1 (PS constants, root
-  CBV), t0-t7 texture table, s0-s7 sampler table, t0 space1 matrix palette (root SRV,
-  StructuredBuffer<float4>). Use VK_KHR_push_descriptor (one set per draw) or dynamic
-  offsets; RADV supports both.
-- DrawCall (renderer_d3d12.h ~line 348) maps to pipeline + 2 UBO ranges + 8 images +
-  8 samplers + storage buffer range + vertex/index buffer range + scissor + XF viewport
-  (reversed depth: see the comment in RendererD3D12::draw about near==far==1 clear quads).
-- EFB: RGBA8 + D24S8 at 640x528 × internal scale; XFB textures from display copies;
-  present scales the selected XFB. Depth 24-bit reversed.
-- **Shaders**: start with the uber shaders only. `uber_vs.hlsl` / `uber_ps.hlsl` compile
-  to SPIR-V unchanged with the VM's DXC:
-  `~/ps5/dxc/build-v1.9.2609/bin/dxc-3.7 -spirv -T ps_6_0 -E main -fspv-target-env=vulkan1.2 -fvk-use-dx-layout uber_ps.hlsl`
-  (56 KB; VS 28 KB). Make PipelineCache always use the uber pipeline at first (no runtime
-  compiler on the console); specialised pipelines later via glslang's HLSL front end or DXC
-  built for the console. post_process.hlsl (SMAA/FXAA/FSR1) the same way, offline.
-- Device/surface: as PS5_VulkanTemplate (`ps5/src/main.cpp`: `volkInitializeCustom(
-  vk_icdGetInstanceProcAddr)`; `base/VulkanSwapChain.cpp`: VK_KHR_display, display mode,
-  `vkCreateDisplayPlaneSurfaceKHR`). RADV is linked into the eboot already
-  (link-title.sh). Output 3840x2160.
-- Order of work: device + swapchain + clear colour on screen (proves presentation) →
-  EFB targets + uber pipeline + draws → display copy to XFB + present (**title screen**:
-  notify Gary audibly) → EFB→texture copies, peeks, pointer depth → texture cache formats
-  (CMPR, I4/I8/IA4/IA8, RGB565, RGB5A3, RGBA8, C4/C8/C14X2 + TLUT) → post-processing →
-  specialised shaders and speed.
-- Nebula's own references: `docs/GRAPHICS_ARCHITECTURE.md` in vendor/nebula.

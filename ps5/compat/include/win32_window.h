@@ -126,6 +126,7 @@ DWORD MsgWaitForMultipleObjectsEx(DWORD count, const HANDLE* handles, DWORD mill
 #define QS_ALLEVENTS 0x04BF
 #define MWMO_INPUTAVAILABLE 0x0004
 #define MWMO_ALERTABLE 0x0002
+#define MWMO_WAITALL 0x0001
 #define PeekMessage PeekMessageW
 #define DispatchMessage DispatchMessageW
 #define PostMessage PostMessageW
@@ -600,6 +601,7 @@ BOOL EnumDisplaySettingsExW(LPCWSTR device, DWORD mode, DEVMODEW* devmode, DWORD
 #define DM_PELSWIDTH 0x00080000L
 #define DM_PELSHEIGHT 0x00100000L
 #define DM_DISPLAYFREQUENCY 0x00400000L
+#define DM_INTERLACED 0x00000002
 BOOL SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT context) noexcept;
 DPI_AWARENESS_CONTEXT GetThreadDpiAwarenessContext() noexcept;
 DPI_AWARENESS_CONTEXT SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT context) noexcept;
@@ -776,6 +778,54 @@ typedef struct _SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX {
 } SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX, *PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX;
 BOOL GetLogicalProcessorInformationEx(LOGICAL_PROCESSOR_RELATIONSHIP relationship,
                                       PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX buffer, PDWORD length) noexcept;
+
+// ---- input sources, power requests and messages the renderer's window handles ------------
+#define WM_CANCELMODE 0x001F
+#define WM_ENTERMENULOOP 0x0211
+#define WM_EXITMENULOOP 0x0212
+#define XBUTTON1 0x0001
+#define XBUTTON2 0x0002
+#define GET_XBUTTON_WPARAM(w) (HIWORD(w))
+#define SMTO_NORMAL 0x0000
+#define SMTO_BLOCK 0x0001
+#define SMTO_ABORTIFHUNG 0x0002
+LONG GetMessageTime() noexcept;
+BOOL ShowWindowAsync(HWND window, int command) noexcept;
+LRESULT SendMessageTimeoutW(HWND window, UINT message, WPARAM wparam, LPARAM lparam, UINT flags, UINT timeout,
+                            PDWORD_PTR result) noexcept;
+HCURSOR LoadCursorA(HINSTANCE instance, LPCWSTR name) noexcept;
+typedef enum tagINPUT_MESSAGE_DEVICE_TYPE {
+    IMDT_UNAVAILABLE = 0, IMDT_KEYBOARD = 1, IMDT_MOUSE = 2, IMDT_TOUCH = 4, IMDT_PEN = 8, IMDT_TOUCHPAD = 16
+} INPUT_MESSAGE_DEVICE_TYPE;
+typedef enum tagINPUT_MESSAGE_ORIGIN_ID {
+    IMO_UNAVAILABLE = 0, IMO_HARDWARE = 1, IMO_INJECTED = 2, IMO_SYSTEM = 4
+} INPUT_MESSAGE_ORIGIN_ID;
+typedef struct tagINPUT_MESSAGE_SOURCE {
+    INPUT_MESSAGE_DEVICE_TYPE deviceType;
+    INPUT_MESSAGE_ORIGIN_ID originId;
+} INPUT_MESSAGE_SOURCE;
+BOOL GetCurrentInputMessageSource(INPUT_MESSAGE_SOURCE* source) noexcept;
+#define POWER_REQUEST_CONTEXT_VERSION 0
+#define POWER_REQUEST_CONTEXT_SIMPLE_STRING 0x1
+typedef struct _REASON_CONTEXT {
+    ULONG Version;
+    DWORD Flags;
+    union {
+        struct {
+            HMODULE LocalizedReasonModule;
+            ULONG LocalizedReasonId;
+            ULONG ReasonStringCount;
+            LPWSTR* ReasonStrings;
+        } Detailed;
+        LPWSTR SimpleReasonString;
+    } Reason;
+} REASON_CONTEXT, *PREASON_CONTEXT;
+typedef enum _POWER_REQUEST_TYPE {
+    PowerRequestDisplayRequired, PowerRequestSystemRequired, PowerRequestAwayModeRequired, PowerRequestExecutionRequired
+} POWER_REQUEST_TYPE;
+HANDLE PowerCreateRequest(PREASON_CONTEXT context) noexcept;
+BOOL PowerSetRequest(HANDLE request, POWER_REQUEST_TYPE type) noexcept;
+BOOL PowerClearRequest(HANDLE request, POWER_REQUEST_TYPE type) noexcept;
 
 // ---- alternate data streams ----------------------------------------------------------------
 typedef enum _STREAM_INFO_LEVELS { FindStreamInfoStandard, FindStreamInfoMaxInfoLevel } STREAM_INFO_LEVELS;

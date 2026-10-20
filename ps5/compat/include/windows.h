@@ -73,6 +73,8 @@ typedef std::uint64_t UINT64;
 typedef std::int64_t INT64;
 typedef std::uint8_t UINT8;
 typedef std::uint16_t UINT16;
+typedef std::int8_t INT8;
+typedef std::int16_t INT16;
 typedef std::uint32_t ULONG;
 typedef std::int32_t LONG;
 typedef std::int32_t INT;
@@ -177,6 +179,8 @@ typedef LONG_PTR LRESULT;
 
 #define MAKEWORD(a, b) ((WORD)(((BYTE)(((DWORD_PTR)(a)) & 0xff)) | ((WORD)((BYTE)(((DWORD_PTR)(b)) & 0xff))) << 8))
 #define MAKELONG(a, b) ((LONG)(((WORD)(((DWORD_PTR)(a)) & 0xffff)) | ((DWORD)((WORD)(((DWORD_PTR)(b)) & 0xffff))) << 16))
+#define MAKELPARAM(l, h) ((LPARAM)(DWORD)MAKELONG(l, h))
+#define MAKEWPARAM(l, h) ((WPARAM)(DWORD)MAKELONG(l, h))
 #define LOWORD(l) ((WORD)(((DWORD_PTR)(l)) & 0xffff))
 #define HIWORD(l) ((WORD)((((DWORD_PTR)(l)) >> 16) & 0xffff))
 #define LOBYTE(w) ((BYTE)(((DWORD_PTR)(w)) & 0xff))
@@ -232,7 +236,7 @@ typedef struct _GUID {
     std::uint16_t Data2;
     std::uint16_t Data3;
     std::uint8_t Data4[8];
-} GUID, IID, CLSID;
+} GUID, IID, CLSID, UUID;
 typedef const GUID& REFGUID;
 typedef const IID& REFIID;
 typedef const CLSID& REFCLSID;
@@ -242,6 +246,11 @@ inline bool operator!=(const GUID& a, const GUID& b) noexcept { return !(a == b)
 #define IsEqualIID(a, b) ((a) == (b))
 #define DEFINE_GUID(name, l, w1, w2, b1, b2, b3, b4, b5, b6, b7, b8) \
     static const GUID name = {l, w1, w2, {b1, b2, b3, b4, b5, b6, b7, b8}}
+
+typedef struct _LUID {
+    DWORD LowPart;
+    LONG HighPart;
+} LUID, *PLUID;
 
 typedef struct _POINT {
     LONG x;
@@ -1313,6 +1322,10 @@ typedef DWORD EXECUTION_STATE;
 EXECUTION_STATE SetThreadExecutionState(EXECUTION_STATE state) noexcept;
 int GetSystemMetrics(int index) noexcept;
 #define SM_CXSCREEN 0
+#define SM_CXICON 11
+#define SM_CYICON 12
+#define SM_CXSMICON 49
+#define SM_CYSMICON 50
 #define SM_CYSCREEN 1
 #define SM_CXVIRTUALSCREEN 78
 #define SM_CYVIRTUALSCREEN 79

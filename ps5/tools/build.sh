@@ -24,11 +24,14 @@ build=${PS5_BUILD_DIR:-$root/build/game}
 ninja=$(command -v ninja || echo "$HOME/.local/bin/ninja")
 export PS5_CLANG=${PS5_CLANG:-$(command -v clang || true)}
 
-if [[ ! -f $build/build.ninja ]]; then
+vkd3d_host=$(bash "$ps5/tools/setup-vkd3d.sh")
+if [[ ! -f $build/build.ninja ]] || ! grep -q VKD3D_HOST_DIR "$build/CMakeCache.txt"; then
     mkdir -p "$build"
     cmake -S "$ps5" -B "$build" -G Ninja -DCMAKE_MAKE_PROGRAM="$ninja" \
         -DCMAKE_TOOLCHAIN_FILE="$sdk/toolchain/prospero.cmake" \
         -DPS5_PORT_DIR="$root" -DPS5_VULKAN_DIR="$vulkan" -DPS5_GENERATED_DIR="$generated" \
+        -DVKD3D_HOST_DIR="$vkd3d_host" -DPS5_VULKAN_HEADERS="${PS5_MESA_DIR:-$HOME/ps5/PS5_Mesa}/include" \
+        -DPS5_SPIRV_HEADERS="${PS5_SPIRV_HEADERS:-$HOME/ps5/dxc/src/external/SPIRV-Headers/include}" \
         -DCMAKE_BUILD_TYPE=Release -DCMAKE_VERBOSE_MAKEFILE=OFF > "$build/configure.log" 2>&1 \
         || { tail -60 "$build/configure.log" >&2; exit 1; }
 fi

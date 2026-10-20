@@ -6,16 +6,20 @@
 #include "windows.h"
 #include <type_traits>
 
+// IUnknown as COM lays it out (three methods, no destructor in the table), so
+// vkd3d's Direct3D 12 objects, written in C, can be called through it.
+#define __IUnknown_FWD_DEFINED__
+#define __IUnknown_INTERFACE_DEFINED__
 struct IUnknown {
     virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** object) = 0;
     virtual ULONG STDMETHODCALLTYPE AddRef() = 0;
     virtual ULONG STDMETHODCALLTYPE Release() = 0;
-    virtual ~IUnknown() = default;
 };
 typedef IUnknown* LPUNKNOWN;
 
-// __uuidof(Type): a distinct GUID for each interface type (the console has no
-// registry of real ones, and nothing compares them with Windows' values).
+// __uuidof(Type or expression): the interface's real GUID where a header
+// declares one (__CRT_UUID_DECL, as vkd3d's Direct3D 12 headers do), otherwise
+// a distinct GUID for each type (nothing compares those with Windows' values).
 template <typename T>
 struct ComUuid {
     static const GUID& value() noexcept {
@@ -23,9 +27,23 @@ struct ComUuid {
         return id;
     }
 };
-#define __uuidof(type) (ComUuid<type>::value())
+#define __CRT_UUID_DECL(type, l, w1, w2, b1, b2, b3, b4, b5, b6, b7, b8) \
+    extern "C++" { \
+    template <> \
+    struct ComUuid<type> { \
+        static const GUID& value() noexcept { \
+            static const GUID id = {l, w1, w2, {b1, b2, b3, b4, b5, b6, b7, b8}}; \
+            return id; \
+        } \
+    }; \
+    }
+template <typename T>
+using ComUuidType = std::remove_cv_t<std::remove_pointer_t<std::remove_reference_t<T>>>;
+#define __uuidof(type) (ComUuid<ComUuidType<__typeof__(type)>>::value())
 #define IID_PPV_ARGS(pp) \
-    ComUuid<std::remove_cv_t<std::remove_reference_t<decltype(**(pp))>>>::value(), reinterpret_cast<void**>(pp)
+    ComUuid<ComUuidType<decltype(**(pp))>>::value(), reinterpret_cast<void**>(pp)
+__CRT_UUID_DECL(IUnknown, 0x00000000, 0x0000, 0x0000, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46)
+static const GUID IID_IUnknown = {0x00000000, 0x0000, 0x0000, {0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}};
 
 typedef enum tagCOINIT {
     COINIT_APARTMENTTHREADED = 0x2,

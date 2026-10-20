@@ -49,6 +49,11 @@ public:
         return ptr_ != nullptr ? ptr_->QueryInterface(__uuidof(U), reinterpret_cast<void**>(other->ReleaseAndGetAddressOf()))
                                : E_POINTER;
     }
+    // `&other` is ComPtr's operator&, which yields the released pointer's address.
+    template <typename U>
+    HRESULT As(U** other) const noexcept {
+        return ptr_ != nullptr ? ptr_->QueryInterface(__uuidof(U), reinterpret_cast<void**>(other)) : E_POINTER;
+    }
     HRESULT CopyTo(T** other) const noexcept { add_ref(); *other = ptr_; return S_OK; }
     friend bool operator==(const ComPtr& a, std::nullptr_t) noexcept { return a.ptr_ == nullptr; }
     friend bool operator!=(const ComPtr& a, std::nullptr_t) noexcept { return a.ptr_ != nullptr; }

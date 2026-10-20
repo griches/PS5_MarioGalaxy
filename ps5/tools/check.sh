@@ -14,7 +14,8 @@ flags=(--sysroot="$sdk/target" -std=c++20 -march=znver2 -fsyntax-only -ferror-li
     -fexperimental-library -fdeclspec -Wno-unknown-attributes -Wno-ignored-attributes
     -DNOMINMAX -DWIN32_LEAN_AND_MEAN -DGALAXY_PS5=1 -DSOFTFLOAT_FAST_INT64=1 -include "$ps5/compat/include/msvc_crt.h"
     -I"$ps5/compat/include" -I"$nebula/runtime/include" -I"$ps5/src" -I"$ps5/compat/generated"
-    -I"$nebula/third_party/berkeley-softfloat-3/source/include" -I"$nebula/runtime/softfloat")
+    -I"$nebula/third_party/berkeley-softfloat-3/source/include" -I"$nebula/runtime/softfloat"
+    -I"$root/.deps/vkd3d/include" -I"$nebula/third_party/smaa" -I"$HOME/ps5/build/post-shaders")
 status=0
 for file in "$@"; do
     echo "== $file"
