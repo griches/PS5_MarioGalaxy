@@ -150,7 +150,8 @@ the settings), which the builder never makes.
 - **Widescreen** as the game draws it, not stretched.
 - **HD texture packs** in Dolphin's DDS format.
 - **The DualSense** in place of the Wii Remote and Nunchuk: point with its gyro
-  (or the right stick), tilt it for the Star Ball and ray surfing, every button
+  (or the right stick), tilt it for the Star Ball and ray surfing, shake it to
+  spin if you like ([motion controls](#motion-controls)), every button
   remappable, and PlayStation buttons in the settings.
 - **A settings menu** in the game: display, graphics, controls, audio, language
   (English, French or Spanish) and text speed.
@@ -166,7 +167,7 @@ the settings), which the builder never makes.
 | Shoot Star Bits (Wii B) | <img src="docs/glyphs/lb.png" width="30" alt="L1"> |
 | Crouch, ground pound (Z) | <img src="docs/glyphs/lt.png" width="30" alt="L2"> |
 | Reset the camera (C) | <img src="docs/glyphs/l3.png" width="30" alt="L3"> |
-| Move the pointer | point the DualSense (gyro), or <img src="docs/glyphs/stick_r.png" width="30" alt="Right stick"> |
+| Move the pointer | point the DualSense ([gyro](#motion-controls)), or <img src="docs/glyphs/stick_r.png" width="30" alt="Right stick"> |
 | Re-centre the pointer (hold: keep it in the middle), bring back a hidden pointer | <img src="docs/glyphs/r3.png" width="30" alt="R3"> |
 | Steer the Star Ball, surf the ray | tilt the DualSense |
 | Back out of a menu (jumps in play) | <img src="docs/glyphs/east.png" width="30" alt="Circle"> |
@@ -174,14 +175,6 @@ the settings), which the builder never makes.
 | − | touchpad button |
 | Wii D-pad | D-pad |
 | **This port's settings** | hold the **touchpad button**, press <img src="docs/glyphs/start.png" width="30" alt="Options"> |
-
-The pointer follows the DualSense as you turn it, like a Wii Remote aimed at
-the screen; hold <img src="docs/glyphs/r3.png" width="20" alt="R3"> and let go to
-set the middle again. A pointer that stays still for **5 seconds** hides until
-you press <img src="docs/glyphs/r3.png" width="20" alt="R3"> or move the right
-stick; **Controls > Hide still pointer** sets the time, or **Never**. With
-**Gyro pointer** off, the right stick points and the left stick steers the
-Star Ball and the ray.
 
 The game's own prompts still show the Wii Remote's buttons: **A** is
 <img src="docs/glyphs/south.png" width="20" alt="Cross"> and **B** is
@@ -195,6 +188,45 @@ change page, and <img src="docs/glyphs/east.png" width="20" alt="Circle"> closes
 **Controls** rebinds any of the Wii's buttons and sets the pointer's speed,
 deadzones and hiding, the gyro pointer and its sensitivity, spinning with a
 shake of the DualSense (**Motion shake**, off at first), and the vibration.
+
+### Motion controls
+
+The DualSense's motion sensors do the Wii Remote's jobs, from the first start.
+
+- **Pointing**: turn the DualSense left, right, up and down and the pointer
+  follows, like a Wii Remote aimed at the screen. It works the same with the
+  pad held flat or upright. Turn past the edge and the pointer leaves the
+  screen, as on the Wii; turn back and it returns. The right stick moves the
+  pointer too.
+- **Setting the middle**: hold the DualSense where you want the middle of the
+  screen to be and press <img src="docs/glyphs/r3.png" width="20" alt="R3">. The
+  pointer jumps to the middle and follows the pad from there. While you hold
+  <img src="docs/glyphs/r3.png" width="20" alt="R3"> it stays in the middle.
+- **Drift**: the gyro calibrates itself whenever the pad rests for half a
+  second. If the pointer creeps, put the pad down for a moment, then press
+  <img src="docs/glyphs/r3.png" width="20" alt="R3">.
+- **Hiding**: a pointer that stays still for **5 seconds** hides. Turning the
+  pad doesn't bring it back, so it can't pop up while you play;
+  <img src="docs/glyphs/r3.png" width="20" alt="R3"> or the right stick does.
+- **Tilting**: tilt the DualSense to roll the Star Ball and to steer when
+  surfing the ray, as you would tilt the Wii Remote.
+- **Shaking** (off at first): with **Motion shake** on, a shake or a quick
+  flick of the wrist spins, as a shake of the Wii Remote or the Nunchuk does.
+  <img src="docs/glyphs/west.png" width="20" alt="Square">,
+  <img src="docs/glyphs/north.png" width="20" alt="Triangle">,
+  <img src="docs/glyphs/rb.png" width="20" alt="R1"> and
+  <img src="docs/glyphs/rt.png" width="20" alt="R2"> spin either way.
+
+These are on the **Controls** page of the settings menu (hold the **touchpad
+button** and press <img src="docs/glyphs/start.png" width="20" alt="Options">):
+
+| Setting | What it does | At first |
+| --- | --- | --- |
+| Gyro pointer | **On**: the pad points and its tilt steers. **Off**: the right stick points and the left stick steers the Star Ball and the ray, as in 1.0.0 | On |
+| Gyro sensitivity | How far the pointer moves for a turn of the pad. At 1.0 a turn of 40 degrees crosses the screen; 2.0 needs 20 degrees. 0.2 to 5.0 | 1.0 |
+| Motion shake | **Off**, **Wii Remote** or **Nunchuk**: which controller a shake stands for | Off |
+| Shake sensitivity | 1 needs a hard shake, 5 a light one | 3 |
+| Hide still pointer | Seconds before a still pointer hides, or **Never** | 5 s |
 
 ## Known limits (1.1.0)
 
