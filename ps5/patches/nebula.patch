@@ -284,10 +284,35 @@ index 2f4238e..2058a14 100644
      // flush, so a GPU-idle retired texture of the same size and mip count is reused instead. RGBA8 2D, no
      // flags, PSR state.
 diff --git a/runtime/include/galaxy/input_bindings.h b/runtime/include/galaxy/input_bindings.h
-index ce2fcc4..366eeab 100644
+index ce2fcc4..4fd49ad 100644
 --- a/runtime/include/galaxy/input_bindings.h
 +++ b/runtime/include/galaxy/input_bindings.h
-@@ -251,6 +251,10 @@ unsigned migrate_legacy_controls(ControlsConfig& config, unsigned version) noexc
+@@ -210,6 +210,10 @@ struct ControlsConfig {
+     return s != ControlScheme::Keyboard;
+ }
+ [[nodiscard]] constexpr bool scheme_has_motion(ControlScheme s) noexcept {
++#if defined(GALAXY_PS5)
++    // The console's Xbox pad is the DualSense (native_host.cpp apply_dualsense_motion).
++    if (s == ControlScheme::Xbox) return true;
++#endif
+     return s == ControlScheme::SwitchPro || s == ControlScheme::SwitchPro2;
+ }
+ 
+@@ -220,7 +224,13 @@ struct ControlsConfig {
+ [[nodiscard]] BindingTable version3_binding_table(ControlScheme scheme);
+ [[nodiscard]] SchemeTuning legacy_scheme_tuning(ControlScheme scheme);
+ // runtime_settings.ini `controls_version`; files without it are version 1.
++#if defined(GALAXY_PS5)
++// The console's version 6: the still-pointer time of pads is 5 seconds.
++inline constexpr unsigned kControlsVersion = 6;
++inline constexpr float kVersion5PointerHideSeconds = 4.0f;
++#else
+ inline constexpr unsigned kControlsVersion = 5;
++#endif
+ // Version 3 still-pointer defaults (pads), replaced in version 4.
+ inline constexpr float kVersion3PointerHideSeconds = 4.0f;
+ inline constexpr float kVersion3PointerHideRadius = 0.03f;
+@@ -251,6 +261,10 @@ unsigned migrate_legacy_controls(ControlsConfig& config, unsigned version) noexc
  [[nodiscard]] std::optional<InputSource> parse_input_source(
      ControlScheme scheme, std::string_view text);
  // "None" for an empty list.
@@ -493,7 +518,7 @@ index 01610bd..fb508b9 100644
  }
  
 diff --git a/runtime/src/gx/renderer_d3d12.cpp b/runtime/src/gx/renderer_d3d12.cpp
-index aee5bd5..71ce2be 100644
+index aee5bd5..bf114e7 100644
 --- a/runtime/src/gx/renderer_d3d12.cpp
 +++ b/runtime/src/gx/renderer_d3d12.cpp
 @@ -204,7 +204,12 @@ std::atomic<bool> s_quit_requested{false};
@@ -581,7 +606,20 @@ index aee5bd5..71ce2be 100644
                  s_controls_scheme, s_controls_draft.table(s_controls_scheme)[info.target]));
              if (bound.size() > 34u) bound = bound.substr(0, 32u) + "..";
              return line + bound;
-@@ -9639,10 +9648,29 @@ void draw_native_settings_overlay(RendererD3D12& renderer) {
+@@ -9468,6 +9477,12 @@ std::string native_settings_row_text(
+             std::snprintf(text, sizeof(text), "SHAKE SENSITIVITY: %u", static_cast<unsigned>(tuning.shake_sensitivity));
+             return text;
+         case ControlsRow::GyroPointer:
++#if defined(GALAXY_PS5)
++            // The DualSense's right stick points with the gyro on or off (the Xbox table).
++            if (s_controls_scheme == galaxy::input::ControlScheme::Xbox) {
++                return std::string("GYRO POINTER: ") + on_off(tuning.gyro_pointer);
++            }
++#endif
+             return std::string("GYRO POINTER: ") + on_off(tuning.gyro_pointer) +
+                    (tuning.gyro_pointer ? "  (R STICK: CAMERA)" : "  (R STICK: POINTER)");
+         case ControlsRow::GyroSensitivity:
+@@ -9639,10 +9654,29 @@ void draw_native_settings_overlay(RendererD3D12& renderer) {
      std::array<float, 4> status_color = muted;
      const std::uint64_t now_ms = GetTickCount64();
      const bool controls_page = tab == kControlsTab;
@@ -612,7 +650,7 @@ index aee5bd5..71ce2be 100644
          status_color = accent;
      } else if (s_controls_message_until_ms > now_ms) {
          status = s_controls_message;
-@@ -9651,8 +9679,7 @@ void draw_native_settings_overlay(RendererD3D12& renderer) {
+@@ -9651,8 +9685,7 @@ void draw_native_settings_overlay(RendererD3D12& renderer) {
          const std::uint64_t left_ms = s_display_confirm_deadline_ms > now_ms
              ? s_display_confirm_deadline_ms - now_ms : 0u;
          char line[96]{};
@@ -622,7 +660,7 @@ index aee5bd5..71ce2be 100644
                        static_cast<unsigned>((left_ms + 999u) / 1000u));
          status = line;
          status_color = accent;
-@@ -9661,9 +9688,7 @@ void draw_native_settings_overlay(RendererD3D12& renderer) {
+@@ -9661,9 +9694,7 @@ void draw_native_settings_overlay(RendererD3D12& renderer) {
          status_color = error;
      } else if (const unsigned pending = pending_settings_changes(); pending != 0u) {
          char line[96]{};
@@ -633,7 +671,7 @@ index aee5bd5..71ce2be 100644
                        pending, pending == 1u ? "" : "S");
          status = line;
          status_color = accent;
-@@ -9682,15 +9707,14 @@ void draw_native_settings_overlay(RendererD3D12& renderer) {
+@@ -9682,15 +9713,14 @@ void draw_native_settings_overlay(RendererD3D12& renderer) {
          panel_x + 28,
          footer_y + footer_step,
          footer_scale,
@@ -651,7 +689,7 @@ index aee5bd5..71ce2be 100644
          muted);
  }
  
-@@ -9714,7 +9738,12 @@ void draw_native_settings_hint(RendererD3D12& renderer) {
+@@ -9714,7 +9744,12 @@ void draw_native_settings_hint(RendererD3D12& renderer) {
      if (s_bb_width < 427u || s_bb_height < 240u) {
          return;
      }
@@ -946,7 +984,7 @@ index 046beb8..b2d7b01 100644
      std::optional<ContentKey> content_key;
      if (decoded_content_cache_enabled() &&
 diff --git a/runtime/src/input_bindings.cpp b/runtime/src/input_bindings.cpp
-index 7787dfa..141b278 100644
+index 7787dfa..d35a97b 100644
 --- a/runtime/src/input_bindings.cpp
 +++ b/runtime/src/input_bindings.cpp
 @@ -41,8 +41,14 @@ constexpr std::array<const char*, kWiiTargetCount> kTargetLabels{
@@ -983,7 +1021,29 @@ index 7787dfa..141b278 100644
  bool iequals(std::string_view a, std::string_view b) noexcept {
      if (a.size() != b.size()) return false;
      for (std::size_t i = 0; i < a.size(); ++i) {
-@@ -523,6 +541,32 @@ std::optional<InputSource> parse_input_source(ControlScheme scheme, std::string_
+@@ -383,7 +401,11 @@ SchemeTuning default_scheme_tuning(ControlScheme scheme) {
+     }
+     if (scheme_is_gamepad(scheme)) {
+         // Still-pointer hiding (pointer_control.h kDefaultPointerHide*).
++#if defined(GALAXY_PS5)
++        tuning.pointer_hide_seconds = 5.0f;
++#else
+         tuning.pointer_hide_seconds = 4.0f;
++#endif
+         tuning.pointer_hide_radius = 0.12f;
+     }
+     return tuning;
+@@ -417,6 +439,9 @@ unsigned migrate_legacy_controls(ControlsConfig& config, unsigned version) noexc
+         if (version < kControlsVersion && scheme_is_gamepad(scheme)) {
+             const bool old_seconds =
+                 (version < 4u && tuning.pointer_hide_seconds == kVersion3PointerHideSeconds) ||
++#if defined(GALAXY_PS5)
++                (version < 6u && tuning.pointer_hide_seconds == kVersion5PointerHideSeconds) ||
++#endif
+                 tuning.pointer_hide_seconds == kVersion4PointerHideSeconds;
+             if (old_seconds && tuning.pointer_hide_seconds != current_tuning.pointer_hide_seconds) {
+                 tuning.pointer_hide_seconds = current_tuning.pointer_hide_seconds;
+@@ -523,6 +548,32 @@ std::optional<InputSource> parse_input_source(ControlScheme scheme, std::string_
      return std::nullopt;
  }
  
@@ -1017,10 +1077,108 @@ index 7787dfa..141b278 100644
      std::string text;
      for (const InputSource& source : bindings) {
 diff --git a/runtime/src/native_host.cpp b/runtime/src/native_host.cpp
-index f002418..592d1ca 100644
+index f002418..daa4652 100644
 --- a/runtime/src/native_host.cpp
 +++ b/runtime/src/native_host.cpp
-@@ -10820,6 +10820,9 @@ private:
+@@ -17,6 +17,11 @@
+ #include "galaxy/owned_storage_worker.h"
+ #include "galaxy/runtime_settings.h"
+ #include "galaxy/scope_exit.h"
++#if defined(GALAXY_PS5)
++#include "galaxy/content_viewport.h"
++#include "galaxy/switch_controller.h"
++#include "ps5_compat.h"
++#endif
+ 
+ #define WIN32_LEAN_AND_MEAN
+ #define NOMINMAX
+@@ -6736,6 +6741,68 @@ galaxy::input::PadSample pad_sample_from_xinput(const NativeHidControllerState&
+     return sample;
+ }
+ 
++#if defined(GALAXY_PS5)
++// The DualSense's motion readings (ps5/compat/src/xinput.cpp) through the Switch controllers'
++// motion model (switch_controller.h SwitchMotion): with the gyro pointer on, its turns point, its
++// tilt steers the tilt sections; with it off the pad is an Xbox pad (right-stick pointer, stick
++// tilt). A shake can stand in for the remote's or the Nunchuk's either way.
++void apply_dualsense_motion(const galaxy::input::SchemeTuning& tuning, LivePad& live) {
++    namespace sw = galaxy::input::switch_hid;
++    static sw::SwitchMotion s_motion{};
++    static std::uint64_t s_last_sample_us = 0u;
++    static std::uint64_t s_live_until_us = 0u;
++    static std::uint64_t s_shake_until_us = 0u;
++    static bool s_reported = false;
++    std::array<compat::PadMotion, 64> samples{};
++    const std::size_t count = compat::take_pad_motion(samples.data(), samples.size());
++    const std::uint64_t now_us = controller_hid_now_us();
++    sw::MotionSettings motion{};
++    motion.shake = tuning.motion_shake != galaxy::input::MotionShake::Off;
++    motion.shake_sensitivity = tuning.shake_sensitivity;
++    motion.gyro_pointer = tuning.gyro_pointer;
++    motion.gyro_sensitivity = tuning.gyro_sensitivity;
++    motion.picture_aspect = static_cast<float>(galaxy::kWiiContentAspect);
++    const std::uint64_t newest_us = count != 0u ? samples[count - 1u].timestamp_us : 0u;
++    for (std::size_t i = 0; i < count; ++i) {
++        const compat::PadMotion& sample = samples[i];
++        // The console repeats a reading between the pad's reports.
++        if (sample.timestamp_us == s_last_sample_us) continue;
++        const float dt = s_last_sample_us != 0u && sample.timestamp_us > s_last_sample_us
++            ? std::min(static_cast<float>(sample.timestamp_us - s_last_sample_us) * 1e-6f, 0.05f) : 0.0f;
++        s_last_sample_us = sample.timestamp_us;
++        sw::ImuSample imu{};
++        for (std::size_t axis = 0; axis < 3u; ++axis) {
++            imu.accel[axis] = std::isfinite(sample.accel[axis]) ? sample.accel[axis] : 0.0f;
++            imu.gyro[axis] = std::isfinite(sample.gyro[axis]) ? sample.gyro[axis] : 0.0f;
++        }
++        if (!s_reported) {
++            s_reported = true;
++            std::fprintf(stderr, "[dualsense] motion: accel %.3f %.3f %.3f g, gyro %.3f %.3f %.3f rad/s\n",
++                         imu.accel[0], imu.accel[1], imu.accel[2], imu.gyro[0], imu.gyro[1], imu.gyro[2]);
++        }
++        const std::uint64_t age_us = newest_us - sample.timestamp_us;
++        const sw::SwitchMotion::Output out =
++            s_motion.feed(imu, dt, now_us > age_us ? now_us - age_us : now_us, motion);
++        if (out.shake_started) s_shake_until_us = now_us + sw::SwitchMotion::kShakeHoldUs;
++        live.gyro_x += out.pointer_x;
++        live.gyro_y += out.pointer_y;
++        s_live_until_us = now_us + 100'000u;
++    }
++    // A report can fall between two of the pad's: the sensors count as live for 100 ms.
++    const bool sensors_live = now_us < s_live_until_us;
++    const bool shaking = sensors_live && now_us < s_shake_until_us;
++    live.shake_remote = shaking && tuning.motion_shake == galaxy::input::MotionShake::Remote;
++    live.shake_nunchuk = shaking && tuning.motion_shake == galaxy::input::MotionShake::Nunchuk;
++    live.imu_live = sensors_live && tuning.gyro_pointer;
++    if (!live.imu_live) {
++        live.gyro_x = live.gyro_y = 0.0f;
++        return;
++    }
++    live.gravity_valid = s_motion.gravity_ready();
++    live.gravity = s_motion.gravity();
++}
++#endif
++
+ std::size_t collect_switch_pads(const galaxy::input::ControlsConfig& config,
+                                 std::array<LivePad, kMaxSwitchPads>& out) {
+     std::array<SwitchPadState, kMaxSwitchPads> pads{};
+@@ -8670,9 +8737,15 @@ galaxy::input::WiimoteInputSnapshot build_native_hid_input_snapshot(
+     for (std::size_t i = 0; i < std::max<std::size_t>(xinput_count, 1u); ++i) {
+         pads[pad_count].device_slot =
+             i < xinput_count ? static_cast<std::uint8_t>(xinput_pads[i].slot) : std::uint8_t{0xFF};
+-        pads[pad_count++].sample = pad_sample_from_xinput(
++        pads[pad_count].sample = pad_sample_from_xinput(
+             i < xinput_count ? xinput_pads[i] : NativeHidControllerState{},
+             xinput_pointer_deadzone_fraction);
++#if defined(GALAXY_PS5)
++        if (i < xinput_count && xinput_pads[i].slot == 0u) {
++            apply_dualsense_motion(xbox_tuning, pads[pad_count]);
++        }
++#endif
++        ++pad_count;
+     }
+     if (controller_mode_polls || (capturing && galaxy::input::scheme_has_motion(capture_scheme))) {
+         ensure_controller_hid_started();
+@@ -10820,6 +10893,9 @@ private:
              offset >= owner_.pak_size_) {
              return;
          }
@@ -1030,7 +1188,7 @@ index f002418..592d1ca 100644
          const std::uint64_t length =
              std::min<std::uint64_t>(bytes, owner_.pak_size_ - offset);
          WIN32_MEMORY_RANGE_ENTRY range{};
-@@ -11289,10 +11292,8 @@ GuestAddressSpace::GuestAddressSpace(
+@@ -11289,10 +11365,8 @@ GuestAddressSpace::GuestAddressSpace(
                      "flat guest RAM view does not match the guest memory owner");
              }
          }
@@ -1043,7 +1201,7 @@ index f002418..592d1ca 100644
      }
      // Publish the live gather buffer only when no diagnostic observes
      // individual gather-pipe writes; every such flag routes generated stores
-@@ -11374,7 +11375,7 @@ GuestAddressSpace::~GuestAddressSpace() {
+@@ -11374,7 +11448,7 @@ GuestAddressSpace::~GuestAddressSpace() {
      if (read_env_flag("GALAXY_TRACE_BOOT_LOG")) {
          std::cerr << "[boot] GuestAddressSpace dsp shutdown complete\n";
      }
@@ -1052,7 +1210,7 @@ index f002418..592d1ca 100644
          UnmapViewOfFile(pak_view_);
      }
      if (pak_mapping_ != nullptr) {
-@@ -12457,6 +12458,27 @@ void GuestAddressSpace::pre_wire_cp_fifo(std::uint32_t base, std::uint32_t end)
+@@ -12457,6 +12531,27 @@ void GuestAddressSpace::pre_wire_cp_fifo(std::uint32_t base, std::uint32_t end)
      }
  }
  
@@ -1080,7 +1238,7 @@ index f002418..592d1ca 100644
  void GuestAddressSpace::open_game_pak(const std::filesystem::path& path) {
      const HANDLE file = CreateFileW(
          path.c_str(),
-@@ -12478,6 +12500,11 @@ void GuestAddressSpace::open_game_pak(const std::filesystem::path& path) {
+@@ -12478,6 +12573,11 @@ void GuestAddressSpace::open_game_pak(const std::filesystem::path& path) {
          throw std::runtime_error("failed to query game.pak size");
      }
      pak_size_ = static_cast<std::uint64_t>(size.QuadPart);
@@ -1092,7 +1250,7 @@ index f002418..592d1ca 100644
  
      const HANDLE mapping = CreateFileMappingW(
          file,
-@@ -12607,8 +12634,16 @@ void GuestAddressSpace::load_disc_mod_overrides_from_env() {
+@@ -12607,8 +12707,16 @@ void GuestAddressSpace::load_disc_mod_overrides_from_env() {
                          << line_number;
                  throw std::runtime_error(message.str());
              }
@@ -1109,7 +1267,7 @@ index f002418..592d1ca 100644
                  std::ostringstream message;
                  message << "disc mod manifest targets " << kDiscModGameId
                          << " but game.pak header does not match in "
-@@ -12762,7 +12797,13 @@ std::byte GuestAddressSpace::disc_byte_at(std::uint64_t disc_offset) const {
+@@ -12762,7 +12870,13 @@ std::byte GuestAddressSpace::disc_byte_at(std::uint64_t disc_offset) const {
          return entry->bytes[static_cast<std::size_t>(
              disc_offset - entry->disc_offset)];
      }
@@ -1123,7 +1281,7 @@ index f002418..592d1ca 100644
  }
  
  const GuestAddressSpace::DiscOverride* GuestAddressSpace::disc_override_at(
-@@ -12839,9 +12880,14 @@ void GuestAddressSpace::copy_disc_bytes_raw(
+@@ -12839,9 +12953,14 @@ void GuestAddressSpace::copy_disc_bytes_raw(
              std::min<std::uint64_t>(
                  remaining,
                  next_override - cursor));
@@ -1138,7 +1296,7 @@ index f002418..592d1ca 100644
          cursor += chunk;
          written += chunk;
          remaining -= chunk;
-@@ -21988,9 +22034,13 @@ std::optional<std::filesystem::path> extended_length_nand_root(
+@@ -21988,9 +22107,13 @@ std::optional<std::filesystem::path> extended_length_nand_root(
      std::filesystem::path absolute =
          std::filesystem::absolute(input, error).lexically_normal();
      if (error || !absolute.is_absolute()) return std::nullopt;
@@ -1153,7 +1311,7 @@ index f002418..592d1ca 100644
      constexpr std::wstring_view kExtendedPrefix = LR"(\\?\)";
      constexpr std::wstring_view kDevicePrefix = LR"(\\.\)";
      constexpr std::wstring_view kUncPrefix = LR"(\\)";
-@@ -22337,7 +22387,7 @@ std::string_view isfs_parent_path(std::string_view path) {
+@@ -22337,7 +22460,7 @@ std::string_view isfs_parent_path(std::string_view path) {
  std::filesystem::path nand_metadata_stream_path(
      const std::filesystem::path& host_path,
      std::wstring_view stream_name = kNandMetadataStream) {
@@ -1162,7 +1320,7 @@ index f002418..592d1ca 100644
      stream_path.append(stream_name);
      return std::filesystem::path(std::move(stream_path));
  }
-@@ -25200,6 +25250,7 @@ std::uint32_t commit_fresh_nand_transaction(
+@@ -25200,6 +25323,7 @@ std::uint32_t commit_fresh_nand_transaction(
          : kIsfsErrAccess;
  }
  
@@ -1170,7 +1328,7 @@ index f002418..592d1ca 100644
  NativeNandRootProbe probe_native_nand_root() {
      std::array<wchar_t, 32768> override_root{};
      const DWORD override_len = GetEnvironmentVariableW(
-@@ -27948,6 +27999,10 @@ bool GuestAddressSpace::handle_fs_ioctl(
+@@ -27948,6 +28072,10 @@ bool GuestAddressSpace::handle_fs_ioctl(
                  return true;
              }
  
@@ -1181,7 +1339,7 @@ index f002418..592d1ca 100644
              NandRenameTransactionPaths paths =
                  make_nand_rename_transaction_paths(host_to);
              NandRenameJournalRecord record{
-@@ -28050,6 +28105,7 @@ bool GuestAddressSpace::handle_fs_ioctl(
+@@ -28050,6 +28178,7 @@ bool GuestAddressSpace::handle_fs_ioctl(
                  throw std::runtime_error(
                      "native NAND Rename transaction durability verification failed");
              }

@@ -106,9 +106,21 @@ bash ps5/tools/console.sh game-files  # content/ and the boot image (only after 
   C++ needs `THREAD_LOCAL=thread_local`. No funopen, fnmatch, timegm, wcsdup, wcsnlen in
   the console's libc (replaced).
 - The XInput mapping (xinput.cpp): Cross A, Circle B, Square X, Triangle Y, Options Start,
-  touchpad button Back, raw sticks. The Wii Remote pointer is still Nebula's right-stick
-  mapping; DualSense gyro/touchpad pointer is a later job (pad samples carry motion data in
-  `reserved[]` of platform.c's struct).
+  touchpad button Back, raw sticks.
+- Gyro (2026-10-21): platform.c turns the DualSense's motion sensors on (angular velocity dead
+  band off) and reads acceleration (g, 0x1c) and angular velocity (rad/s, 0x28) from each pad
+  sample; xinput.cpp queues every reading for `compat::take_pad_motion` (ps5_compat.h), and
+  native_host.cpp `apply_dualsense_motion` feeds them through Nebula's Switch `SwitchMotion`
+  (assumed: the console's frame is SDL's, +X right, +Y out of the face, +Z toward the player;
+  klog prints the first reading as `[dualsense] motion:`). On the console `scheme_has_motion`
+  is true for the Xbox scheme, so the DualSense gets the Switch pads' gyro pointer (on by
+  default), motion shake (off by default), gyro sensitivity rows in the overlay, and its tilt
+  steers Star Ball and ray surfing while the gyro pointer is on. The right stick still points
+  too; R3 recenters (held: pinned at the centre) and brings back a pointer hidden at rest.
+  A still pointer hides after 5 s on the console (Gary; Nebula's 4 s elsewhere), 0 = NEVER in
+  the overlay: PS5 controls version 6 moves a saved 4 s to 5 s (input_bindings.h
+  kVersion5PointerHideSeconds). The overlay's GYRO POINTER row drops "(R STICK: CAMERA)" for
+  the DualSense. Released as 1.1.0 (contentVersion 01.001.000).
 
 ## The renderer: Nebula's Direct3D 12 on vkd3d
 

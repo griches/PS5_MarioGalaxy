@@ -2,16 +2,20 @@
 // DualSense (ps5/src/platform.c reads it), named as an Xbox pad: Cross A,
 // Circle B, Square X, Triangle Y, Options Start, the touchpad button Back.
 // Nebula maps that pad to the virtual Wii Remote and Nunchuk with its own dead
-// zones, so the sticks go through raw.
+// zones, so the sticks go through raw. Its motion readings are kept for
+// compat::take_pad_motion (the gyro pointer, native_host.cpp).
 //
 // SPDX-License-Identifier: GPL-3.0-only
 #include "compat_internal.h"
 
 #include <Xinput.h>
 
+#include <array>
+#include <cstring>
 #include <mutex>
 
 #include "platform.h"
+#include "ps5_compat.h"
 
 namespace {
 std::mutex g_pad_lock;
@@ -19,6 +23,10 @@ bool g_pad_opened = false;
 DWORD g_packet = 0;
 XINPUT_STATE g_last{};
 ULONGLONG g_last_poll_ms = 0;
+// Motion readings not yet taken: a ring, the oldest overwritten.
+std::array<compat::PadMotion, 256> g_motion{};
+std::size_t g_motion_first = 0;
+std::size_t g_motion_count = 0;
 
 SHORT axis(std::uint8_t value, bool invert) {
     int centred = (static_cast<int>(value) - 128) * 256;
@@ -48,6 +56,18 @@ DWORD WINAPI XInputGetState(DWORD user, XINPUT_STATE* state) noexcept {
         XINPUT_STATE next{};
         if ((pad_players() & 1u) == 0) {
             return ERROR_DEVICE_NOT_CONNECTED;
+        }
+        for (int i = 0; i < count; ++i) {
+            const struct pad_reading& reading = readings[i];
+            if (!reading.connected || (reading.buttons & PAD_INTERCEPTED) != 0) continue;
+            if (g_motion_count == g_motion.size()) {
+                g_motion_first = (g_motion_first + 1) % g_motion.size();
+                --g_motion_count;
+            }
+            compat::PadMotion& motion = g_motion[(g_motion_first + g_motion_count++) % g_motion.size()];
+            std::memcpy(motion.accel, reading.accel, sizeof(motion.accel));
+            std::memcpy(motion.gyro, reading.gyro, sizeof(motion.gyro));
+            motion.timestamp_us = reading.timestamp_us;
         }
         if (count > 0 && (readings[count - 1].buttons & PAD_INTERCEPTED) == 0) {
             const struct pad_reading& reading = readings[count - 1];
@@ -83,6 +103,18 @@ DWORD WINAPI XInputGetState(DWORD user, XINPUT_STATE* state) noexcept {
     }
     *state = g_last;
     return ERROR_SUCCESS;
+}
+
+std::size_t compat::take_pad_motion(PadMotion* out, std::size_t capacity) noexcept {
+    std::lock_guard lock(g_pad_lock);
+    if (g_motion_count > capacity) {
+        g_motion_first = (g_motion_first + g_motion_count - capacity) % g_motion.size();
+        g_motion_count = capacity;
+    }
+    const std::size_t taken = g_motion_count;
+    for (std::size_t i = 0; i < taken; ++i) out[i] = g_motion[(g_motion_first + i) % g_motion.size()];
+    g_motion_first = g_motion_count = 0;
+    return taken;
 }
 
 DWORD WINAPI XInputSetState(DWORD user, XINPUT_VIBRATION* vibration) noexcept {

@@ -7,7 +7,7 @@
 **Super Mario Galaxy** (Wii, 2007) as native PS5 homebrew, title `PPSA99315`, at
 4K and 60 frames a second. Not an emulator: the game's own code, translated
 into C++ by [Nebula](https://github.com/keepvaibin/nebula) and compiled for the
-console. Version 1.0.0.
+console. Version 1.1.0.
 
 You make the title yourself, from **your own disc**, with a small builder app
 for the Mac or Windows. Nothing of the game is in any download here.
@@ -39,10 +39,10 @@ for the Mac or Windows. Nothing of the game is in any download here.
 
 1. From the [latest release](https://github.com/griches/PS5_MarioGalaxy/releases/latest),
    download the builder for your computer and unzip it:
-   - **Mac**: `SuperMarioGalaxy-PS5-Builder-1.0.0-mac.zip` gives you the app
+   - **Mac**: `SuperMarioGalaxy-PS5-Builder-1.1.0-mac.zip` gives you the app
      **Super Mario Galaxy PS5 Builder**. Move it to Applications if you like and
      open it.
-   - **Windows**: `SuperMarioGalaxy-PS5-Builder-1.0.0-windows.zip` gives you a
+   - **Windows**: `SuperMarioGalaxy-PS5-Builder-1.1.0-windows.zip` gives you a
      folder **Super Mario Galaxy PS5 Builder**. Open
      **Super Mario Galaxy PS5 Builder.exe** in it. Keep the folder together: the
      app needs the `kit` folder and `galaxy-builder.exe` beside it. If SmartScreen
@@ -149,8 +149,9 @@ the settings), which the builder never makes.
   with anti-aliasing (SMAA, FXAA or Auto) and anisotropic filtering.
 - **Widescreen** as the game draws it, not stretched.
 - **HD texture packs** in Dolphin's DDS format.
-- **The DualSense** in place of the Wii Remote and Nunchuk: the pointer on the
-  right stick, every button remappable, and PlayStation buttons in the settings.
+- **The DualSense** in place of the Wii Remote and Nunchuk: point with its gyro
+  (or the right stick), tilt it for the Star Ball and ray surfing, every button
+  remappable, and PlayStation buttons in the settings.
 - **A settings menu** in the game: display, graphics, controls, audio, language
   (English, French or Spanish) and text speed.
 - **Native**: the game's code runs as x86-64 on the console's own CPU.
@@ -165,13 +166,22 @@ the settings), which the builder never makes.
 | Shoot Star Bits (Wii B) | <img src="docs/glyphs/lb.png" width="30" alt="L1"> |
 | Crouch, ground pound (Z) | <img src="docs/glyphs/lt.png" width="30" alt="L2"> |
 | Reset the camera (C) | <img src="docs/glyphs/l3.png" width="30" alt="L3"> |
-| Move the pointer | <img src="docs/glyphs/stick_r.png" width="30" alt="Right stick"> |
-| Re-centre the pointer (hold: keep it in the middle) | <img src="docs/glyphs/r3.png" width="30" alt="R3"> |
+| Move the pointer | point the DualSense (gyro), or <img src="docs/glyphs/stick_r.png" width="30" alt="Right stick"> |
+| Re-centre the pointer (hold: keep it in the middle), bring back a hidden pointer | <img src="docs/glyphs/r3.png" width="30" alt="R3"> |
+| Steer the Star Ball, surf the ray | tilt the DualSense |
 | Back out of a menu (jumps in play) | <img src="docs/glyphs/east.png" width="30" alt="Circle"> |
 | Pause (+) | <img src="docs/glyphs/start.png" width="30" alt="Options"> |
 | − | touchpad button |
 | Wii D-pad | D-pad |
 | **This port's settings** | hold the **touchpad button**, press <img src="docs/glyphs/start.png" width="30" alt="Options"> |
+
+The pointer follows the DualSense as you turn it, like a Wii Remote aimed at
+the screen; hold <img src="docs/glyphs/r3.png" width="20" alt="R3"> and let go to
+set the middle again. A pointer that stays still for **5 seconds** hides until
+you press <img src="docs/glyphs/r3.png" width="20" alt="R3"> or move the right
+stick; **Controls > Hide still pointer** sets the time, or **Never**. With
+**Gyro pointer** off, the right stick points and the left stick steers the
+Star Ball and the ray.
 
 The game's own prompts still show the Wii Remote's buttons: **A** is
 <img src="docs/glyphs/south.png" width="20" alt="Cross"> and **B** is
@@ -182,13 +192,13 @@ changes, <img src="docs/glyphs/north.png" width="20" alt="Triangle"> applies,
 <img src="docs/glyphs/west.png" width="20" alt="Square"> undoes,
 <img src="docs/glyphs/lb.png" width="20" alt="L1"> and <img src="docs/glyphs/rb.png" width="20" alt="R1">
 change page, and <img src="docs/glyphs/east.png" width="20" alt="Circle"> closes it.
-**Controls** rebinds any of the Wii's buttons and sets the pointer's speed and
-deadzones and the vibration.
+**Controls** rebinds any of the Wii's buttons and sets the pointer's speed,
+deadzones and hiding, the gyro pointer and its sensitivity, spinning with a
+shake of the DualSense (**Motion shake**, off at first), and the vibration.
 
-## Known limits (1.0.0)
+## Known limits (1.1.0)
 
 - Only the first USA printing of the disc (`RMGE01`, revision 0).
-- No motion controls: the pointer is on the right stick, and spins are buttons.
 - The game's prompts show the Wii Remote's buttons (above).
 - 30 or 60 frames a second (a 120 Hz mode was tried and taken out: the game's
   animated models broke in the frames in between).
@@ -247,8 +257,8 @@ ps5/builder/build-tools-mac.sh                      # nebula-recomp, ps5-native-
 ps5/builder/build-tools-windows.sh USER@PC          # the same for Windows, built on a PC over SSH
 ps5/builder/make-kit.sh mac build/builder-kit-mac   # the kits (a VM build records the link)
 ps5/builder/make-kit.sh windows build/builder-kit-windows
-NOTARY_KEY_JSON=~/key.json ps5/builder/mac/build-app.sh 1.0.0   # the signed, notarised Mac app
-ps5/builder/package-windows.sh 1.0.0                # the Windows zip
+NOTARY_KEY_JSON=~/key.json ps5/builder/mac/build-app.sh 1.1.0   # the signed, notarised Mac app
+ps5/builder/package-windows.sh 1.1.0                # the Windows zip
 ```
 
 The home-screen art (`ps5/art`, converted by `ps5/art/make-title-art.sh`) is

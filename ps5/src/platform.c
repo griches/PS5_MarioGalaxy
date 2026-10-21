@@ -37,6 +37,8 @@ int scePadClose(int32_t handle);
 int scePadSetVibrationMode(int32_t handle, int32_t mode);
 int scePadSetVibration(int32_t handle, const void *vibration);
 int scePadSetLightBar(int32_t handle, const void *color);
+int scePadSetMotionSensorState(int32_t handle, bool enable);
+int scePadSetAngularVelocityDeadbandState(int32_t handle, bool enable);
 int sceAudioOutInit(void);
 int sceAudioOutOpen(int32_t user, int32_t type, int32_t index, uint32_t grain, uint32_t rate,
                     uint32_t format);
@@ -125,7 +127,11 @@ catchReturnFromMain(int status)
 struct pad_sample {
    uint32_t buttons;
    uint8_t left_x, left_y, right_x, right_y, l2, r2;
-   uint8_t reserved[66];
+   uint8_t reserved[2];
+   float orientation[4];
+   float acceleration[3];     /* in g: +x right, +y out of the face, +z toward the player */
+   float angular_velocity[3]; /* rad/s about those axes, counter-clockwise positive */
+   uint8_t touch[24];
    int32_t connected;
    uint64_t timestamp_us;
    uint8_t extension[16];
@@ -133,6 +139,8 @@ struct pad_sample {
    uint8_t remaining[15];
 };
 _Static_assert(sizeof(struct pad_sample) == 120, "the console's pad samples are 120 bytes");
+_Static_assert(offsetof(struct pad_sample, acceleration) == 0x1c, "acceleration sits at 0x1c");
+_Static_assert(offsetof(struct pad_sample, angular_velocity) == 0x28, "angular velocity sits at 0x28");
 _Static_assert(offsetof(struct pad_sample, connected) == 0x4c, "connection state sits at 0x4c");
 _Static_assert(offsetof(struct pad_sample, timestamp_us) == 0x50, "the timestamp sits at 0x50");
 
@@ -204,6 +212,10 @@ pad_player_open(int player, int32_t user, int attempts)
    state->handle = handle;
    say("pad: player %d opened for user %d, rumble mode %d", player, (int)user,
        scePadSetVibrationMode(handle, PAD_VIBRATION_COMPATIBLE));
+   /* The motion sensors, with the console's own dead band off: small turns of
+    * the pad must move a gyro pointer, and the reader filters rest noise. */
+   say("pad: player %d motion sensors %d, angular velocity dead band off %d", player,
+       scePadSetMotionSensorState(handle, true), scePadSetAngularVelocityDeadbandState(handle, false));
    return true;
 }
 
@@ -311,7 +323,9 @@ pad_poll(struct pad *pad)
          const struct pad_sample *s = &samples[i];
          state->taken[state->taken_count++] = (struct pad_reading){
             s->buttons, s->left_x, s->left_y, s->right_x, s->right_y, s->l2, s->r2,
-            s->connected != 0, s->timestamp_us};
+            s->connected != 0, s->timestamp_us,
+            {s->acceleration[0], s->acceleration[1], s->acceleration[2]},
+            {s->angular_velocity[0], s->angular_velocity[1], s->angular_velocity[2]}};
          state->connected = s->connected != 0;
          if (s->connected && !(s->buttons & PAD_INTERCEPTED))
             state->last = *s;
